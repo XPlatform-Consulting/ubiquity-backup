@@ -1,0 +1,200 @@
+#!/usr/bin/env ruby
+require 'rubygems'
+require 'logger'
+require 'optparse'
+# require 'tmpdir'
+
+ARGV << '--help' if ARGV.empty?
+
+@archive_dir_base_path = '/tmp' # Dir.tmpdir
+def archive_dir_base_path; @archive_dir_base_path end
+
+@dry_run = true
+def dry_run?; @dry_run end
+
+@output_command_history = false
+def output_command_history?; @output_command_history end
+
+@restore_aspera_enterprise = false
+def restore_aspera_enterprise?; @restore_aspera_enterprise end
+
+@restore_aspera_orchestrator = true
+def restore_aspera_orchestrator?; @restore_aspera_orchestrator end
+
+@restore_cantemo_portal = true
+def restore_cantemo_portal?; @restore_cantemo_portal end
+
+op = OptionParser.new
+op.banner = %(Usage: #{File.basename($0)} [options] <archive-file-name>\n\nExample: #{File.basename($0)} "/tmp/ubiquity-backup_20150319-15511-156k4nk.tgz"\n\nOptions:)
+op.on('--archive-dir-path PATH', 'The path of the directory to extract the archive directory in.', "default: #{archive_dir_base_path}\n\n") { |v| @archive_dir_base_path = v }
+op.on('--[no-]dry-run', 'Will output the commands to be run but will not execute them.', "default: #{dry_run?}\n\n") { |v| @dry_run = v }
+op.on('--[no-]output-command-history', 'Will show the commands that were run. This is redundant if noop is true.') { |v| @output_command_history = v }
+op.on('--[no-]restore-aspera-enterprise', 'Will run through the commands to restore Aspera Enterprise.', "default: #{restore_aspera_enterprise?}\n\n") { |v| @restore_aspera__enterprise = v }
+op.on('--[no-]restore-aspera-orchestrator', 'Will run through the commands to restore Aspera Orchestrator',"default: #{restore_aspera_orchestrator?}\n\n") { |v| @restore_aspera_orchestrator = v }
+op.on('--[no-]restore-cantemo-portal', 'Will run through the commands to restore Cantemo Portal', "default: #{restore_cantemo_portal?}\n\n") { |v| @restore_cantemo_portal = v }
+op.on('--help', 'Display this message.') { puts op; exit }
+op.parse!
+
+@logger = Logger.new(STDOUT)
+def logger; @logger end
+logger.level = Logger::DEBUG
+
+archive_file_path = ARGV.first
+
+@command_history = [ ]
+
+def execute(command_line, options = { })
+  _no_op = options.fetch(:dry_run, dry_run?)
+  _method = options[:method] || :backtick
+
+  @command_history << command_line
+  return if _no_op
+  logger.debug { "Executing: #{command_line}" }
+
+  response = case _method
+               when :backtick, 'backtick'; `#{command_line}`
+               when :system, 'systemm'; system(command_line)
+             end
+  logger.debug { response }
+  response
+end
+
+# archive_file_name = 'ubiquity-backup_20150317-8646-awcuf4.tgz'
+archive_name = File.basename(archive_file_path, '.tgz')
+
+@archive_dir_path = File.join(archive_dir_base_path, archive_name)
+def archive_dir_path; @archive_dir_path end
+
+# archive_file_name = "#{archive_name}.tgz"
+@archive_file_name = File.basename(archive_file_path)
+def archive_file_name; @archive_file_name end
+
+
+# command_line = %(tar xzvf /tmp/#{archive_file_name} -C "#{archive_dir_path}")
+command_line = %(tar xzvf "#{archive_file_path}" -C "/")
+execute(command_line)
+
+# command_line =  %(cd "#{archive_dir_path}")
+# execute(command_line)
+
+if restore_aspera_enterprise?
+  # command_line = %(sudo tar xzvf "#{archive_dir_path}/aspera_connect_config.tgz" -C "/")
+  # execute(command_line)
+
+  command_line = %(sudo tar xzvf "#{archive_dir_path}/aspera_enterprise_config.tgz" -C "/")
+  execute(command_line)
+end
+
+if restore_aspera_orchestrator?
+  execute("echo '# ### ASPERA ORCHESTRATOR RESTORATION - BEGIN ###'")
+
+  command_line = %(/opt/aspera/orchestrator/bin/orchestrator all kill)
+  execute(command_line)
+
+  command_line = %(sudo tar xzvf "#{archive_dir_path}/orchestrator_apache_config.tgz" -C "/")
+  execute(command_line)
+
+  command_line = %(sudo tar xzvf "#{archive_dir_path}/orchestrator_mysql_config.tgz" -C "/")
+  execute(command_line)
+
+  command_line = %(sudo tar xzvf "#{archive_dir_path}/orchestrator_aspera_portlets.tgz" -C "/")
+  execute(command_line)
+
+  command_line = %(sudo tar xzvf "#{archive_dir_path}/orchestrator_aspera_portlets_in_var_config.tgz" -C "/")
+  execute(command_line)
+
+  snapshot_file_path = "/opt/aspera/var/archive/orchestrator/#{archive_name}.snap"
+  # command_line = %(cp "#{archive_dir_path}/#{archive_name}.snap" "/opt/aspera/var/archive/orchestrator/#{archive_name}.snap")
+  # command_line = %(cp "#{archive_dir_path}/#{archive_name}.snap" "/opt/aspera/var/archive/orchestrator/snapshots/#{archive_name}.snap")
+
+  command_line = %(cp "#{archive_dir_path}/#{archive_name}.snap" "#{snapshot_file_path}")
+  execute(command_line)
+
+  # command_line = %(export GEM_HOME="/opt/aspera/orchestrator/vendor/dependencies/linux-gnu";cd /opt/aspera/orchestrator;ruby script/runner script/snapshot "/opt/aspera/var/archive/orchestrator/#{archive_name}.snap")
+  command_line = %(cd /opt/aspera/orchestrator;ruby script/runner script/snapshot "#{snapshot_file_path}")
+  # command_line = %(export GEM_HOME="/opt/aspera/orchestrator/vendor/dependencies/linux-gnu";cd /opt/aspera/orchestrator;ruby script/runner 'puts Snapshot.extract_snapshot("/opt/aspera/var/archive/orchestrator/#{archive_name}.snap")')
+  # command_line = %(export GEM_HOME="/opt/aspera/orchestrator/vendor/dependencies/linux-gnu";cd /opt/aspera/orchestrator;ruby script/runner 'puts Snapshot.extract_snapshot("#{snapshot_file_path}")')
+  execute(command_line, :method => :system)
+
+  # command_line = %(/opt/aspera/orchestrator/bin/orchestrator all start && echo "Done.")
+  # execute(command_line)
+
+  execute("echo '# ### ASPERA ORCHESTRATOR RESTORATION - END ###'")
+end
+
+if restore_cantemo_portal?
+  execute("echo '# ### CANTEMO PORTAL RESTORATION - BEGIN ###'")
+
+  command_line = %(supervisorctl stop all;/etc/init.d/middleware stop)
+  execute(command_line)
+
+  command_line = %(sudo tar czvf "#{archive_dir_path}/cantemo_portal_configs.tgz" -C "/")
+  execute(command_line)
+
+  command_line = %(sudo tar czvf "#{archive_dir_path}/cantemo_portal_elasticsearch_conf.tgz" -C "/")
+  execute(command_line)
+
+  command_line = %(sudo tar czvf "#{archive_dir_path}/cantemo_portal_etc.tgz" -C "/")
+  execute(command_line)
+
+  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_configs.tgz" -C "/")
+  execute(command_line)
+
+  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_elasticsearch_conf.tgz" -C "/")
+  execute(command_line)
+
+  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_etc.tgz" -C "/")
+  execute(command_line)
+
+  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_glassfish_domain.tgz" -C "/")
+  execute(command_line)
+
+  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_nginx.tgz" -C "/")
+  execute(command_line)
+
+  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_media.tgz" -C "/")
+  execute(command_line)
+
+  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_glassfish_solr.tgz" -C "/")
+  execute(command_line)
+
+  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_rabbitmq_conf.tgz" -C "/")
+  execute(command_line)
+
+  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_themes.tgz" -C "/")
+  execute(command_line)
+
+  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_thumbnails.tgz" -C "/")
+  execute(command_line)
+
+  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_usermedia.tgz" -C "/")
+  execute(command_line)
+
+
+  # command_line = %(export PGPASSWORD=postgres;"/usr/bin/psql" -h localhost -U postgres -c "DROP DATABASE portal;";unset PGPASSWORD)
+  command_line = %(sudo -u postgres dropdb portal)
+  execute(command_line)
+
+  command_line = %(sudo -u postgres createdb portal)
+  execute(command_line)
+
+  command_line = %(export PGPASSWORD=postgres;"/usr/bin/psql" -h localhost -U postgres portal -f "#{archive_dir_path}/cantemo_portal_db.sql";unset PGPASSWORD)
+  execute(command_line)
+
+  # command_line = %(export PGPASSWORD=postgres;"/usr/bin/psql" -h localhost -U postgres -c "DROP DATABASE vidispine;";unset PGPASSWORD)
+  command_line = %(sudo -u postgres dropdb vidispine)
+  execute(command_line)
+
+  command_line = %(sudo -u postgres createdb vidispine)
+  execute(command_line)
+
+  command_line = %(export PGPASSWORD=postgres;"/usr/bin/psql" -h localhost -U postgres vidispine -f "#{archive_dir_path}/cantemo_vidispine_db.sql";unset PGPASSWORD)
+  execute(command_line)
+
+  command_line = %(/etc/init.d/middleware start;supervisorctl start all)
+  execute(command_line)
+
+  execute("echo '# ### CANTEMO PORTAL RESTORATION - END ###'")
+end
+
+puts "Command#{dry_run? ? 's' : ' History'}:\n#{@command_history.join("\n")}" if (dry_run? || output_command_history?)

@@ -1,0 +1,640 @@
+#!/usr/bin/env ruby
+lib_path = File.expand_path('../../lib', __FILE__)
+$:.unshift(lib_path) unless $:.include?(lib_path) or !File.exists?(lib_path)
+
+require 'rubygems'
+require 'logger'
+require 'optparse'
+require 'shellwords'
+# require 'tempfile'
+
+@archive_dir_base_path = '/tmp' # Dir.tmpdir
+def archive_dir_base_path; @archive_dir_base_path end
+
+@dry_run = true
+def dry_run?; @dry_run end
+
+op = OptionParser.new
+op.on('--archive-path PATH', 'The directory to use when building the archive.', "default: '#{archive_dir_base_path}'\n\n") { |v| puts "Setting Archive Path: '#{v}'"; @archive_dir_base_path = v }
+op.on('--[no-]dry-run', 'Will output the commands to be run but will not execute them.', "default: #{dry_run?}\n\n") { |v| @dry_run = v }
+op.on('--help', 'Display this message.') { puts op; exit }
+op.parse!
+
+class MultiIO
+  def initialize(*targets); @targets = targets end
+  def write(*args); @targets.each { |t| t.write(*args) rescue nil } end
+  def close; @targets.each(&:close) end
+  def add_target(target); @targets << target end
+  def targets; @targets end
+end
+
+
+class Logger
+  def add_target(target)
+    _target = target.is_a?(String) ? File.open(target, 'a') : target
+    @logdev.dev.add_target(_target) if @logdev.dev.respond_to?(:add_target)
+  end
+end
+
+def execute(command_line, options = { })
+  noop = options.fetch(:noop, default_noop)
+
+  command_line = command_line.shelljoin if command_line.is_a?(Array)
+
+  (@command_history ||= [ ]) << command_line
+
+  unless noop
+    logger.info { "Executing Command Line: #{command_line}" }
+    `#{command_line}`
+  end
+end
+
+# def archive_aspera_connect(task = { })
+#   configuration_file_path = task[:configuration_file_path] || '/Library/Aspera/etc/aspera.conf'
+#   shares_backup_executable_path = task[:backup_executable_path] || '/opt/aspera/shares/u/setup/bin/backup'
+#
+#   archive_path(:name => 'aspera_connect_config', :path => configuration_file_path)
+#   execute(%("#{shares_backup_executable_path}" -b "#{temp_dir}"))
+# end
+
+def archive_aspera_enterprise(task = { })
+
+  configuration_file_path = task[:configuration_file_path] || '/opt/aspera/etc/aspera.conf'
+  shares_backup_executable_path = task[:backup_executable_path] || '/opt/aspera/bin/asnodeadmin'
+
+  archive_path(:name => 'aspera_connect_config', :path => configuration_file_path)
+  execute(%("#{shares_backup_executable_path}" -b "#{archive_dir}"))
+
+end
+
+def archive_aspera_orchestrator(task = { })
+  _archive_name = task[:archive_name] || archive_name
+  commands = [ ]
+  commands << 'export GEM_HOME="/opt/aspera/orchestrator/vendor/dependencies/linux-gnu"'
+  commands << 'cd /opt/aspera/orchestrator'
+  commands << %(ruby script/runner 'FileUtils.cp(Snapshot.config_dump("#{_archive_name}").path, "#{archive_dir}")')
+  execute(commands.join(';'))
+
+end
+
+def archive_aspera_shares(task = { })
+  shares_backup_executable_path = task[:backup_executable_path] || '/opt/aspera/shares/u/setup/bin/backup'
+  execute(%("#{shares_backup_executable_path}" -b "#{archive_dir}"))
+
+  # TODO To facilitate recovery the backup directory needs to be recorded
+end
+
+def archive_elasticsearch_index(args = { })
+  # http://stackoverflow.com/questions/12835937/elasticsearch-hot-backup-strategies
+  # https://github.com/meskyanichi/backup/pull/433/files
+  #
+  # http://www.elastic.co/guide/en/elasticsearch/reference/master/indices-open-close.html
+  # https://gist.github.com/nherment/1939828
+  # http://www.elastic.co/guide/en/elasticsearch/reference/current/modules-snapshots.html
+  # http://chrissimpson.co.uk/elasticsearch-snapshot-restore-api.html
+  # https://www.google.com/search?q=elasticsearch+backup+index+sh&oq=elasticsearch+backup
+  # https://karussell.wordpress.com/2011/07/10/how-to-backup-elasticsearch-with-rsync/
+  task = args.dup
+
+  gzip = args.fetch(:gzip, true)
+
+  target_full_file_path = args[:target_full_file_path] || File.join(archive_dir, "#{task[:name]}#{gzip ? '.tgz' : '.tar'}")
+  index = args[:index] || 'all'
+  path = args[:path]
+
+  host = args[:host] || 'localhost'
+  port = args[:port] || 9200
+
+
+  # Invoke Flush POST $index/_flush
+
+  # Invoke Close POST $index/_close
+
+  # Copy Files
+
+
+=begin
+      def api_request(http_method, endpoint, body=nil)
+        http = Net::HTTP.new(host, port)
+        request = case http_method.to_sym
+        when :post
+          Net::HTTP::Post.new(endpoint)
+        end
+        request.body = body
+        begin
+          Timeout::timeout(180) do
+            http.request(request)
+          end
+        rescue => error
+          raise Errors::Database::Elasticsearch::QueryError, <<-EOS
+            Could not query the Elasticsearch API.
+            Host was: #{ host }
+            Port was: #{ port }
+            Endpoint was: #{ endpoint }
+            Error was: #{ error.message }
+          EOS
+        end
+      end
+
+      def flush_index_endpoint
+        backup_all? ? '/_flush' : "/#{ index }/_flush"
+      end
+
+      def invoke_flush!
+        response = api_request(:post, flush_index_endpoint)
+        unless response.code == '200'
+          raise Errors::Database::Elasticsearch::QueryError, <<-EOS
+            Could not flush the Elasticsearch index.
+            Host was: #{ host }
+            Port was: #{ port }
+            Endpoint was: #{ flush_index_endpoint }
+            Response body was: #{ response.body }
+            Response code was: #{ response.code }
+          EOS
+        end
+      end
+
+      def close_index_endpoint
+        "/#{ index }/_close"
+      end
+
+      def invoke_close!
+        response = api_request(:post, close_index_endpoint)
+        unless response.code == '200'
+          raise Errors::Database::Elasticsearch::QueryError, <<-EOS
+            Could not close the Elasticsearch index.
+            Host was: #{ host }
+            Port was: #{ port }
+            Endpoint was: #{ close_index_endpoint }
+            Response body was: #{ response.body }
+            Response code was: #{ response.code }
+          EOS
+        end
+      end
+
+      def copy!
+        src_path = File.join(path, 'nodes/0/indices')
+        src_path = File.join(src_path, index) unless backup_all?
+        unless File.exist?(src_path)
+          raise Errors::Database::Elasticsearch::NotFoundError, <<-EOS
+            Elasticsearch index directory not found
+            Directory path was #{ src_path }
+          EOS
+        end
+        pipeline = Pipeline.new
+        pipeline << "#{ utility(:tar) } -cf - #{ src_path }"
+        dst_ext = '.tar'
+        if model.compressor
+          model.compressor.compress_with do |cmd, ext|
+            pipeline << cmd
+            dst_ext << ext
+          end
+        end
+        dst_path = File.join(dump_path, dump_filename + dst_ext)
+        pipeline << "#{ utility(:cat) } > '#{ dst_path }'"
+        pipeline.run
+        unless pipeline.success?
+          raise Errors::Database::PipelineError,
+            "Elasticsearch Index '#{ index }' Backup Failed!\n" + pipeline.error_messages
+        end
+      end
+
+=end
+
+
+end
+
+def archive_mysql_database(task = { })
+  # http://dev.mysql.com/doc/refman/5.6/en/mysqldump.html
+
+  args = task[:database]
+
+  mysqldump_executable_path = args[:mysqldump_executable_path] || 'mysqldump'
+
+  hostname = args.fetch(:hostname, false)
+  port = args.fetch(:port, false)
+  username = args.fetch(:username, false)
+  password = args.fetch(:password, false)
+  database_name = args[:name]
+
+  gzip = args.fetch(:gzip, true)
+
+  table_list = args[:table_list] || [ ]
+  table_list = [ table_list ] unless table_list.is_a?(Array)
+  table_name = args[:table_name]
+  table_list << table_name if table_name
+
+  target_full_file_path = args[:target_full_file_path] || File.join(archive_dir, "#{task[:name]}#{gzip ? '.tgz' : '.sql'}")
+
+  command_line = [ mysqldump_executable_path ]
+  command_line << '-h' << hostname if hostname
+  command_line << '-P' << port if port
+  command_line << '-u' << username if username
+  command_line << "-p#{password}" if password
+  #command_line << "--databases #{database_name}" if database_name
+  command_line << database_name if database_name
+  command_line = command_line +  table_list unless table_list.empty?
+  command_line = command_line.shelljoin
+  command_line << " > #{target_full_file_path}"
+  #command_line = %("#{mysqldump_executable_path}" #{username ? " --user=#{username}" : ''}#{password ? " -password=#{password}" : ''}#{hostname ? " -h#{hostname}" : ''}#{port ? " --port=#{port}" : ''}#{table_list ? " #{table_list.join(' ')}" : ''} #{database_name} > #{target_full_file_path} )
+
+
+  execute(command_line)
+end
+
+def archive_path(args = { })
+  name = args[:name]
+  path = args[:path]
+  use_relative_path = args.fetch(:use_relative_path, true)
+  file_name = "#{name}.tgz"
+  if use_relative_path
+    prefix = %(cd "#{archive_dir}";)
+    target_file_path = file_name
+  else
+    prefix = ''
+    target_full_file_path = args[:target] || File.join(archive_dir, file_name)
+    target_file_path = target_full_file_path
+  end
+
+  use_sudo = args.fetch(:use_sudo, true)
+
+  #logger.info { "Archiving Path: '#{path}' Name: #{name}" }
+  # `tar cvzf cantemo_portal_configs.tgz /opt/cantemo/portal/configs`
+  # `tar cvzf cantemo_portal_configs.tgz /opt/cantemo/portal/configs`
+
+  command_line = %(#{prefix}#{use_sudo ? 'sudo ' : ''}tar czvf "#{target_file_path}" "#{path}")
+  execute(command_line)
+end
+
+def archive_postgresql_database(task = { })
+  args = task[:database]
+
+  # http://www.postgresql.org/docs/8.4/static/continuous-archiving.html#BACKUP-ARCHIVING-WAL
+  # http://www.postgresql.org/docs/8.0/static/backup.html
+  # Copy Databases
+  # WAL Logs
+  pg_dump_executable_path = args[:pg_dump_executable_path] || '/usr/bin/pg_dump'
+
+  hostname = args.fetch(:hostname, 'localhost')
+  username = args.fetch(:username, 'postgres')
+  password = args.fetch(:password, false)
+  database_name = args[:name]
+
+  target_full_file_path = args[:target_full_file_path] || File.join(archive_dir, "#{task[:name]}.sql")
+
+  #command_line = %("#{pg_dump_executable_path}"#{hostname ? " -h #{hostname}" : ''}#{username ? " -U #{username}" : ''} #{database_name} | gzip > "#{target_full_file_path}")
+  command_line = %(#{password ? "export PGPASSWORD=#{password};" : ''}"#{pg_dump_executable_path}"#{hostname ? " -h #{hostname}" : ''}#{username ? " -U #{username}" : ''} #{database_name} > "#{target_full_file_path}";unset PGPASSWORD)
+  execute(command_line)
+
+  { :files => [ target_full_file_path ] }
+end
+
+def archive_redis_database(args = { })
+
+end
+
+def archive_solr_index(args = { })
+  # https://cwiki.apache.org/confluence/display/solr/Backing+Up
+end
+
+@arguments = { }
+def arguments; @arguments end
+
+@default_noop = dry_run?
+def default_noop; @default_noop end
+
+@output_command_history = true
+def output_command_history?; @output_command_history end
+
+@logger = Logger.new(arguments[:log_to] || MultiIO.new(STDOUT))
+def logger; @logger end
+logger.level = arguments[:log_level] || Logger::INFO
+
+def archive_name
+  @archive_name ||= begin
+    t = Time.now.strftime("%Y%m%d")
+    "ubiquity-backup_#{t}-#{$$}-#{rand(0x100000000).to_s(36)}"
+  end
+end
+
+@archive_file_name = "#{archive_name}.tgz"
+def archive_file_name; @archive_file_name end
+
+@archive_dir = File.join(archive_dir_base_path, archive_name)
+def archive_dir; @archive_dir end
+
+@log_file_path = File.join(archive_dir, 'backup.log')
+def log_file_path; @log_file_path end
+
+@preserved_working_dir = Dir.pwd
+def preserved_working_dir; @preserved_working_dir end
+
+Dir.mkdir(archive_dir_base_path) unless dry_run?
+
+execute("mkdir -p #{archive_dir}")
+execute("cd #{archive_dir}")
+
+logger.debug { "Archive Dir: #{archive_dir}" }
+logger.add_target(log_file_path) if !dry_run? and logger.respond_to?(:add_target)
+
+class BaseArchive
+
+  TASKS = [ ]
+
+  def self.tasks; self::TASKS.dup end
+  def self.tasks_by_name(tasks = self::TASKS); Hash[tasks.map { |task| [ task[:name], task] }] end
+
+  def tasks; @tasks ||= TASKS.dup end
+  def tasks_by_name; self.class.tasks_by_name end
+
+end
+
+@existing_constants = Object.constants
+
+# class AsperaConnectServerArchive < BaseArchive
+# # @see http://download.asperasoft.com/download/docs/entsrv/3.5.4/cs_admin_linux/pdf2/ConnectServer_Admin_3.5.4_Linux.pdf
+#
+# # @see http://download.asperasoft.com/download/docs/entsrv/3.5.4/cs_admin_osx/pdf2/ConnectServer_Admin_3.5.4_OSX.pdf
+#
+# =begin
+#   /Library/Aspera/etc
+#   /Library/Aspera/etc/aspera.conf
+#
+#   Redis DB Backup/Restore
+#     Instructions for backing up and restoring the database.
+#
+#     To back up and restore the Redis database (and your user data up to the point-in-time of the backup operation), follow
+#     the instructions below. Note that the backup and restore operations should be used for the following scenarios:
+#
+#     • If you need to change the Redis database port number (<db_port/> in aspera.conf), you should first back up
+#     the Redis database. Once you have changed the port number, you need to restore the database.
+#     • Basic backup and restore (after a data-loss event).
+#
+#     1. Back up the Redis database.
+#         Use the following command to back up your Redis database (before changing the port number):
+#         $ sudo /Library/Aspera/bin/asnodeadmin -b /your/backup/dir/
+#         database.backup
+#         Important: When backing up the Redis database, all user data up to that point-in-time will be saved to
+#         the backup file. Restoring the database (see Step 2, below) does not delete users added after this snapshot
+#         was taken. Thus, if you added any users after backing up the database, then they will still exist in the
+#         system and will not be affected by the restore operation.
+#
+#     2. Restore the Redis database.
+#         Use the following command to restore your Redis database:
+#         $ sudo /Library/Aspera/bin/asnodeadmin -r /your/backup/dir/
+#         database.backup
+#         Recall the "Important Note" in Step 1, which stated that restoring the database does not delete users added after
+#         the database snapshot was taken. If you do not want to keep users that have been added since the last backup
+#         operation, you can delete them after performing the restore with the asnodeadmin command -du username.
+#
+#     3. Restart the asperanoded service.
+#         Use the following command(s) to restart the asperanoded service (requires a restart rather than a reload):
+#         $ sudo launchctl stop com.aspera.asperanoded
+#         $ sudo launchctl start com.aspera.asperanoded
+# =end
+#
+#   TASKS = [
+#     { :type => :archive_path, :name => 'aspera_connect_config', :path => '/opt/aspera/etc' },
+#     #{ :type => :execute, :name => 'aspera_connect_db', :path => '/opt/aspera/shares/u/setup/bin/backup' }
+#   ]
+#
+# end
+
+class AsperaEnterpriseServerArchive < BaseArchive
+# @see http://download.asperasoft.com/download/docs/entsrv/3.5.4/es_admin_linux/pdf2/EnterpriseServer_Admin_3.5.4_Linux.pdf
+
+=begin
+  /opt/aspera/etc/
+  /opt/aspera/etc/aspera.conf
+
+  Redis DB Backup/Restore
+    Instructions for backing up and restoring the database.
+    To back up and restore the Redis database (and your user data up to the point-in-time of the backup operation), follow
+    the instructions below. Note that the backup and restore operations should be used for the following scenarios:
+
+    • If you need to change the Redis database port number (<db_port/> in aspera.conf), you should first back up
+      the Redis database. Once you have changed the port number, you need to restore the database.
+    • Basic backup and restore (after a data-loss event).
+
+    1. Back up the Redis database.
+        Use the following command to back up your Redis database (before changing the port number):
+        $ sudo /opt/aspera/bin/asnodeadmin -b /your/backup/dir/database.backup
+        Important: When backing up the Redis database, all user data up to that point-in-time will be saved to
+        the backup file. Restoring the database (see Step 2, below) does not delete users added after this snapshot
+        was taken. Thus, if you added any users after backing up the database, then they will still exist in the
+        system and will not be affected by the restore operation.
+
+    2. Restore the Redis database.
+        Use the following command to restore your Redis database:
+        $ sudo /opt/aspera/bin/asnodeadmin -r /your/backup/dir/database.backup
+        Recall the "Important Note" in Step 1, which stated that restoring the database does not delete users added after
+        the database snapshot was taken. If you do not want to keep users that have been added since the last backup
+        operation, you can delete them after performing the restore with the asnodeadmin command -du username.
+
+    3. Restart the asperanoded service.
+        Use the following command(s) to restart the asperanoded service (requires a restart rather than a reload):
+        $ sudo /etc/init.d/asperanoded restart
+=end
+
+  TASKS = [
+      { :type => :archive_path, :name => 'aspera_enterprise_config', :path => '/opt/aspera/etc' },
+  ]
+
+
+end
+
+class AsperaSharesArchive < BaseArchive
+# @see http://download.asperasoft.com/download/docs/shares/1.9.1/admin_linux/pdf2/Shares_Admin_1.9.1_Linux.pdf
+
+=begin
+
+    1. Run the following script as a root user.
+        The script stops Shares services, backs up all necessary files, and restarts Shares. You cannot use this procedure
+        with earlier versions of Shares.
+        # /opt/aspera/shares/u/setup/bin/backup /your_backup_dir
+        For example:
+        # /opt/aspera/shares/u/setup/bin/backup /tmp
+        Creating backup directory /tmp/20130627025459 ...
+        Checking status of aspera-shares ...
+        Status is running
+        mysqld is alive
+        Backing up the Shares database and config files ...
+        Backing up the SSL certificates ...
+        Done
+    2. Make a note of the ID of the created backup directory for future use. In the above example example:
+        20130627025459
+=end
+  TASKS = [
+      # { :type => :execute, :name => 'aspera_shares_backup_script', :path => '/opt/aspera/shares/u/setup/bin/backup' }
+      { :type => :archive_aspera_shares, :name => 'aspera_shares_backup' }
+  ]
+
+end
+
+class CantemoPortalArchive < BaseArchive
+
+  # require 'inifile'
+
+  TASKS = [
+      { :type => :archive_path, :name => 'cantemo_portal_configs',            :path => '/opt/cantemo/portal/configs' },
+      { :type => :archive_path, :name => 'cantemo_portal_elasticsearch_conf', :path => '/etc/elasticsearch' },
+      { :type => :archive_path, :name => 'cantemo_portal_etc',                :path => '/etc/cantemo/portal/' },
+      { :type => :archive_path, :name => 'cantemo_portal_glassfish_domain',   :path => '/opt/glassfish3/glassfish/domains/domain1/config/domain.xml' },
+      { :type => :archive_path, :name => 'cantemo_portal_nginx',              :path => '/etc/nginx/conf.d/portal.conf' },
+      { :type => :archive_path, :name => 'cantemo_portal_media',              :path => '/opt/cantemo/portal/portal_media' },
+      { :type => :archive_path, :name => 'cantemo_portal_glassfish_solr',     :path => '/opt/glassfish3/glassfish/solrhome' },
+      { :type => :archive_path, :name => 'cantemo_portal_rabbitmq_conf',      :path => '/etc/rabbitmq' },
+      { :type => :archive_path, :name => 'cantemo_portal_themes',             :path => '/opt/cantemo/portal/portal_themes' },
+      { :type => :archive_path, :name => 'cantemo_portal_thumbnails',         :path => '/srv/thumbnail' },
+      { :type => :archive_path, :name => 'cantemo_portal_usermedia',          :path => '/opt/cantemo/portal/usermedia' },
+
+      # Postgres Databases
+      # { :type => :archive_postgresql_database, :name => 'cantemo_portal_db', :database => { :name => 'portal', :username => 'portal', :password => 'p0rtal' } },
+      { :type => :archive_postgresql_database, :name => 'cantemo_portal_db', :database => { :name => 'portal', :username => 'postgres', :password => 'postgres' } },
+      { :type => :archive_postgresql_database, :name => 'cantemo_vidispine_db', :database => { :name => 'vidispine', :username => 'postgres', :password => 'postgres' } },
+
+      # Nginx
+      # /etc/nginx/conf.d/portal.conf
+
+      # Glassfish
+      # /opt/glassfish3/glassfish/domains/domain1/config/domain.xml
+
+      # Solr Home in Glassfish
+      # /opt/glassfish3/glassfish/solrhome
+
+      # Elasticsearch
+      # /etc/elasticsearch/
+      { :type => :archive_elasticsearch_index, :name => 'cantemo_portal_elasticsearch' }
+
+  # RabbitMQ
+  # /var/lib/rabbitmq
+  # /etc/rabbitmq/
+  ]
+
+  # def self.tasks
+  #   self.new.tasks
+  # end
+
+  # def initialize(args = { })
+  #   _tasks_by_name = tasks_by_name
+  #
+  #   cantemo_portal_config_path = File.join(_tasks_by_name['cantemo_portal_configs'][:path], 'portal.conf')
+  #   cantemo_portal_config = IniFile.load(cantemo_portal_config_path)
+  #
+  #   cantemo_portal_database_config = cantemo_portal_config['database']
+  #   return tasks if cantemo_portal_database_config.empty?
+  #
+  #   cantemo_portal_database_name = cantemo_portal_database_config['DATABASE_NAME']
+  #   cantemo_portal_database_host = cantemo_portal_database_config['DATABASE_HOST']
+  #   cantemo_portal_database_port = cantemo_portal_database_config['DATABASE_PORT']
+  #   cantemo_portal_database_username = cantemo_portal_database_config['DATABASE_USER']
+  #   cantemo_portal_database_password = cantemo_portal_database_config['DATABASE_PASSWORD']
+  #
+  #   cantemo_portal_archive_database_config = {
+  #     :hostname => cantemo_portal_database_host,
+  #     :port => cantemo_portal_database_port,
+  #     :name => cantemo_portal_database_name,
+  #     :username => cantemo_portal_database_username,
+  #     :password => cantemo_portal_database_password
+  #   }
+  #
+  #   _tasks_by_name['cantemo_portal_db'][:database].merge!(cantemo_portal_archive_database_config)
+  #
+  #   # Get Portal Database Information
+  #   @tasks = _tasks_by_name.map { |_, task| task }
+  # end
+
+end
+
+class AsperaOrchestratorArchive < BaseArchive
+  # export GEM_HOME="/opt/aspera/orchestrator/vendor/dependencies/linux-gnu"
+  # cd /opt/aspera/orchestrator
+  # ruby script/runner_light 'puts Snapshot.config_dump.path'
+  #
+  # [root@ip-10-179-169-57 orchestrator]# ruby script/runner_light -h
+  # Usage: script/runner_light [options] ('Some.ruby(code)' or a filename)
+  #
+  #     -e, --environment=name           Specifies the environment for the runner to operate under (test/development/production).
+  #                                      Default: development
+  #
+  #     -h, --help                       Show this help message.
+  #
+  # You can also use runner as a shebang line for your scripts like this:
+  # -------------------------------------------------------------
+  # #!/usr/bin/env /media/APPS/opt/aspera/Orchestrator_2.1.0.94708-00012/script/runner_light
+  #
+  # Product.find(:all).each { |p| p.price *= 2 ; p.save! }
+  # -------------------------------------------------------------
+  # [root@ip-10-179-169-57 orchestrator]# ruby script/runner_light 'snapshot = Snapshot.config_dump; puts snapshot.path'
+  # An install specific config file can be created at /opt/aspera/var/config/orchestrator/orchestrator.yml to overwrite defaults
+  # /opt/aspera/var/archive/orchestrator/snapshots/Snapshot_20150314001015.snap
+
+  TASKS = [
+
+      { :type => :archive_aspera_orchestrator },
+
+      { :type => :archive_path, :name => 'orchestrator_apache_config', :path => '/opt/aspera/common/apache/conf' },
+      { :type => :archive_path, :name => 'orchestrator_mysql_config', :path => '/opt/aspera/common/mysql/my.ini' },
+      # MySQL Configuration
+
+
+      # { :type => :archive_path, :name => 'orchestrator_config', :path => '/opt/aspera/orchestrator/var/config' },
+      #
+      # { :type => :archive_mysql_database, :name => 'orchestrator_db', :database => { :name => 'orchestrator', :port => '4406', :username => 'mysql', :password => 'aspera' } }
+
+      # Portlets
+      { :type => :archive_path, :name => 'orchestrator_aspera_portlets', :path => '/opt/aspera/orchestrator/portlets' },
+      { :type => :archive_path, :name => 'orchestrator_aspera_portlets_in_var_config', :path => '/opt/aspera/var/config/orchestrator/portlets' },
+  # /opt/aspera/orchestrator/portlets
+  # /opt/aspera/var/config/orchestrator/portlets
+
+  ]
+end
+
+
+# module Ubiquity
+#
+#   module Continuity
+#
+#     class Backup
+#
+#       class Task
+#
+#       end
+#
+#
+#     end
+#
+#   end
+#
+# end
+#
+# UBackup = Ubiquity::Continuity::Backup
+
+# backup_tasks = OrchestratorArchive.tasks
+
+backup_tasks = (Object.constants - @existing_constants).delete_if { |obj| !Object.const_get(obj).respond_to?(:tasks) }.map { |obj| Object.const_get(obj).tasks }.flatten
+# backup_tasks = CantemoPortalArchive.tasks + AsperaOrchestratorArchive.tasks
+logger.debug { "Tasks: #{backup_tasks.length}" }
+begin
+  backup_tasks.each do |task|
+    logger.debug { "Processing Task: #{task.inspect}" }
+    case task[:type]
+      # when :archive_aspera_connect; archive_aspera_connect(task)
+      when :archive_aspera_enterprise; archive_aspera_enterprise(task)
+      when :archive_aspera_orchestrator; archive_aspera_orchestrator(task)
+      when :archive_aspera_shares; archive_aspera_shares(task)
+      # when :archive_elasticsearch_index; archive_elasticsearch_index(task)
+      # when :archive_mysql_database; archive_mysql_database(task)
+      when :archive_path; archive_path(task)
+      when :archive_postgresql_database; archive_postgresql_database(task)
+      # when :archive_redis_database; archive_redis_database(task)
+    end
+  end
+
+  execute(%(cd "#{archive_dir_base_path}";tar czvf "#{archive_file_name}" "#{archive_name}"))
+ensure
+  logger.info { "Command History:\n#{@command_history.join("\n")}" } rescue nil if output_command_history?
+  Dir.chdir(preserved_working_dir)
+end
+
