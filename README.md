@@ -1,28 +1,32 @@
 # Ubiquity::Backup
 
+## Installation
+
+### Pre-requisites
+
+  - [git](http://git-scm.com/book/en/v2/Getting-Started-Installing-Git)
+  - [ruby](https://www.ruby-lang.org/en/documentation/installation/)
+  - rubygems
+  - [bundler](http://bundler.io/#getting-started)
+
+#### Install Pre-requisites on CentOS
+
+Execute the following:
+
+    $ yum install -y git ruby ruby-devel rubygems
+    $ gem install bundler
+
+### Install Using Git
+
+Execute the following:
+
+    $ mkdir -p /opt/ubiquity
+    $ cd /opt/ubiquity
+    $ git clone https://github.com/XPlatform-Consulting/ubiquity-backup.git
+    $ cd ubiquity-backup
+    $ bundle update
+
 ## Usage
-
-Installation
-    Pre-requisites
-    git
-    ruby
-    rubygems
-    bundler
-    
-Install Pre-requisites on CentOS
-
-Execute the following:
-           yum install -y git ruby ruby-devel rubygems	
-           gem install bundler
-
-Install Using Git
-Execute the following:
-           mkdir -p /opt/ubiquity
-           cd /opt/ubiquity
-           git clone https://github.com/XPlatform-Consulting/ubiquity-backup.git
-           cd ubiquity-backup
-           bundle update
-
 
 ### Backup
 
