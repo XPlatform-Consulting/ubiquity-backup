@@ -59,6 +59,14 @@ def execute(command_line, options = { })
   response
 end
 
+def echo(message, options = { })
+  if dry_run?
+    execute(%(echo "#{message}"))
+  else
+    puts message
+  end
+end
+
 # archive_file_name = 'ubiquity-backup_20150317-8646-awcuf4.tgz'
 archive_name = File.basename(archive_file_path, '.tgz')
 
@@ -85,8 +93,15 @@ if restore_aspera_enterprise?
   execute(command_line)
 end
 
-if restore_aspera_orchestrator?
-  execute("echo '# ### ASPERA ORCHESTRATOR RESTORATION - BEGIN ###'")
+def restore_aspera_orchestrator
+  echo '# ### ASPERA ORCHESTRATOR RESTORATION - BEGIN ###'
+
+  snapshot_file_path = "/opt/aspera/var/archive/orchestrator/#{archive_name}.snap"
+
+  unless !dry_run? && File.exists?(snapshot_file_path)
+    warn "Could not find the Aspera Orchestrator Snapshot. Aborting Aspera Orchestrator Restoration.\n File Not Found: #{snapshot_file_path}"
+    return
+  end
 
   command_line = %(/opt/aspera/orchestrator/bin/orchestrator all kill)
   execute(command_line)
@@ -103,7 +118,6 @@ if restore_aspera_orchestrator?
   command_line = %(sudo tar xzvf "#{archive_dir_path}/orchestrator_aspera_portlets_in_var_config.tgz" -C "/")
   execute(command_line)
 
-  snapshot_file_path = "/opt/aspera/var/archive/orchestrator/#{archive_name}.snap"
   # command_line = %(cp "#{archive_dir_path}/#{archive_name}.snap" "/opt/aspera/var/archive/orchestrator/#{archive_name}.snap")
   # command_line = %(cp "#{archive_dir_path}/#{archive_name}.snap" "/opt/aspera/var/archive/orchestrator/snapshots/#{archive_name}.snap")
 
@@ -111,7 +125,7 @@ if restore_aspera_orchestrator?
   execute(command_line)
 
   # command_line = %(export GEM_HOME="/opt/aspera/orchestrator/vendor/dependencies/linux-gnu";cd /opt/aspera/orchestrator;ruby script/runner script/snapshot "/opt/aspera/var/archive/orchestrator/#{archive_name}.snap")
-  command_line = %(cd /opt/aspera/orchestrator;ruby script/runner script/snapshot "#{snapshot_file_path}")
+  command_line = %(export GEM_HOME="/opt/aspera/orchestrator/vendor/dependencies/linux-gnu";cd /opt/aspera/orchestrator;ruby script/runner script/snapshot "#{snapshot_file_path}")
   # command_line = %(export GEM_HOME="/opt/aspera/orchestrator/vendor/dependencies/linux-gnu";cd /opt/aspera/orchestrator;ruby script/runner 'puts Snapshot.extract_snapshot("/opt/aspera/var/archive/orchestrator/#{archive_name}.snap")')
   # command_line = %(export GEM_HOME="/opt/aspera/orchestrator/vendor/dependencies/linux-gnu";cd /opt/aspera/orchestrator;ruby script/runner 'puts Snapshot.extract_snapshot("#{snapshot_file_path}")')
   execute(command_line, :method => :system)
@@ -119,11 +133,20 @@ if restore_aspera_orchestrator?
   # command_line = %(/opt/aspera/orchestrator/bin/orchestrator all start && echo "Done.")
   # execute(command_line)
 
-  execute("echo '# ### ASPERA ORCHESTRATOR RESTORATION - END ###'")
+  echo '# ### ASPERA ORCHESTRATOR RESTORATION - END ###'
 end
 
-if restore_cantemo_portal?
-  execute("echo '# ### CANTEMO PORTAL RESTORATION - BEGIN ###'")
+restore_aspera_orchestrator if restore_aspera_orchestrator?
+
+
+def restore_cantemo_portal
+  echo '# ### CANTEMO PORTAL RESTORATION - BEGIN ###'
+
+  cantemo_portal_configs_archive_file_path = "#{archive_dir_path}/cantemo_portal_configs.tgz"
+  unless !dry_run? && File.exists?(cantemo_portal_configs_archive_file_path)
+    warn "Could not find the Cantemo Portal Configs Archive. Aborting Cantemo Portal Restoration.\n File Not Found: #{cantemo_portal_configs_archive_file_path}"
+    return
+  end
 
   command_line = %(supervisorctl stop all;/etc/init.d/middleware stop)
   execute(command_line)
@@ -194,7 +217,13 @@ if restore_cantemo_portal?
   command_line = %(/etc/init.d/middleware start;supervisorctl start all)
   execute(command_line)
 
-  execute("echo '# ### CANTEMO PORTAL RESTORATION - END ###'")
+  # Force a re-index of the items
+  command_line = %(/opt/cantemo/portal/manage.py reindex)
+  execute(command_line)
+
+  echo '### CANTEMO PORTAL RESTORATION - END ###'
 end
+
+restore_cantemo_portal if restore_cantemo_portal?
 
 puts "Command#{dry_run? ? 's' : ' History'}:\n#{@command_history.join("\n")}" if (dry_run? || output_command_history?)
