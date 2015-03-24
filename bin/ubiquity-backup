@@ -3,6 +3,7 @@ lib_path = File.expand_path('../../lib', __FILE__)
 $:.unshift(lib_path) unless $:.include?(lib_path) or !File.exists?(lib_path)
 
 require 'rubygems'
+require 'fileutils'
 require 'logger'
 require 'optparse'
 require 'shellwords'
@@ -14,9 +15,14 @@ def archive_dir_base_path; @archive_dir_base_path end
 @dry_run = true
 def dry_run?; @dry_run end
 
+def archive_name
+  @archive_name ||= "ubiquity-backup-#{Time.now.strftime('%Y%m%d')}-#{$$}-#{rand(0x100000000).to_s(36)}"
+end
+
 op = OptionParser.new
 op.on('--archive-path PATH', 'The directory to use when building the archive.', "default: '#{archive_dir_base_path}'\n\n") { |v| puts "Setting Archive Path: '#{v}'"; @archive_dir_base_path = v }
 op.on('--[no-]dry-run', 'Will output the commands to be run but will not execute them.', "default: #{dry_run?}\n\n") { |v| @dry_run = v }
+op.on('--archive-name NAME', 'Will override the generated archive name with whatever is specified.', "example: #{archive_name}\n\n") { |v| @archive_name = v }
 op.on('--help', 'Display this message.') { puts op; exit }
 op.parse!
 
@@ -48,6 +54,15 @@ def execute(command_line, options = { })
     `#{command_line}`
   end
 end
+
+def echo(message, options = { })
+  if dry_run?
+    execute(%(echo "#{message}"))
+  else
+    puts message
+  end
+end
+
 
 # def archive_aspera_connect(task = { })
 #   configuration_file_path = task[:configuration_file_path] || '/Library/Aspera/etc/aspera.conf'
@@ -310,13 +325,6 @@ def output_command_history?; @output_command_history end
 def logger; @logger end
 logger.level = arguments[:log_level] || Logger::INFO
 
-def archive_name
-  @archive_name ||= begin
-    t = Time.now.strftime("%Y%m%d")
-    "ubiquity-backup_#{t}-#{$$}-#{rand(0x100000000).to_s(36)}"
-  end
-end
-
 @archive_file_name = "#{archive_name}.tgz"
 def archive_file_name; @archive_file_name end
 
@@ -329,7 +337,7 @@ def log_file_path; @log_file_path end
 @preserved_working_dir = Dir.pwd
 def preserved_working_dir; @preserved_working_dir end
 
-Dir.mkdir(archive_dir_base_path) unless dry_run?
+FileUtils.mkdir_p(archive_dir_base_path) unless dry_run?
 
 execute("mkdir -p #{archive_dir}")
 execute("cd #{archive_dir}")
@@ -633,8 +641,10 @@ begin
   end
 
   execute(%(cd "#{archive_dir_base_path}";tar czvf "#{archive_file_name}" "#{archive_name}"))
+  echo %(Archive Created: '#{File.join(archive_dir_base_path, archive_file_name)}')
+
 ensure
-  logger.info { "Command History:\n#{@command_history.join("\n")}" } rescue nil if output_command_history?
+  logger.info { "Command#{dry_run? ? 's' : ' History'}:\n#{@command_history.join("\n")}" } if (dry_run? || output_command_history?)
   Dir.chdir(preserved_working_dir)
 end
 
