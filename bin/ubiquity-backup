@@ -9,22 +9,123 @@ require 'optparse'
 require 'shellwords'
 # require 'tempfile'
 
+@archive_aspera_console = true
+def archive_aspera_console?; @archive_aspera_console end
+
+@archive_aspera_enterprise = true
+def archive_aspera_enterprise?; @archive_aspera_enterprise end
+
+@archive_aspera_faspex = true
+def archive_aspera_faspex?; @archive_aspera_faspex end
+
+@archive_aspera_orchestrator = true
+def archive_aspera_orchestrator?; @archive_aspera_orchestrator end
+
+@archive_aspera_shares = true
+def archive_aspera_shares?; @archive_aspera_shares end
+
+@archive_cantemo_portal = true
+def archive_cantemo_portal?; @archive_cantemo_portal end
+
 @archive_dir_base_path = '/tmp' # Dir.tmpdir
 def archive_dir_base_path; @archive_dir_base_path end
+
+@archive_name = "ubiquity-backup-#{Time.now.strftime('%Y%m%d')}-#{$$}-#{rand(0x100000000).to_s(36)}"
+def archive_name; @archive_name end
 
 @dry_run = true
 def dry_run?; @dry_run end
 
-def archive_name
-  @archive_name ||= "ubiquity-backup-#{Time.now.strftime('%Y%m%d')}-#{$$}-#{rand(0x100000000).to_s(36)}"
+def banner_footer
+  <<-BANNER
+System Names:
+  all (default)
+  aspera_console
+  aspera_enterprise
+  aspera_faspex
+  aspera_orchestrator
+  aspera_shares
+  cantemo_portal
+
+  * Note: Supplying a system name will override a --no-[system-name] option
+  BANNER
 end
 
 op = OptionParser.new
+op.program_name = File.basename($0)
+op.banner = <<-BANNER
+Usage: #{op.program_name} [options] [system name(s)]
+
+Examples:
+
+  1. Dry Run of a Backup of All Supported Systems (Default)
+    # #{op.program_name}
+
+  2. Actual Backup of All Supported Systems
+    # #{op.program_name} --no-dry-run
+
+  3. Backup Just Cantemo Portal
+    # #{op.program_name} cantemo_portal --no-dry-run
+
+  4. Backup Aspera Enterprise and Aspera Shares Only
+    # #{op.program_name} --no-dry-run aspera_enterprise aspera_shares
+
+Options:
+BANNER
+op.on('--[no-]archive-aspera-console', 'If set to false then an attempt to backup this system will not be made.', "default: #{archive_aspera_console?}\n\n" ) { |v| @archive_aspera_console = v }
+op.on('--[no-]archive-aspera-enterprise', 'If set to false then an attempt to backup this system will not be made.', "default: #{archive_aspera_enterprise?}\n\n" ) { |v| @archive_aspera_enterprise = v }
+op.on('--[no-]archive-aspera-faspex', 'If set to false then an attempt to backup this system will not be made.', "default: #{archive_aspera_faspex?}\n\n" ) { |v| @archive_aspera_faspex = v }
+op.on('--[no-]archive-aspera-orchestrator', 'If set to false then an attempt to backup this system will not be made.', "default: #{archive_aspera_orchestrator?}\n\n" ) { |v| @archive_aspera_orchestrator = v }
+op.on('--[no-]archive-aspera-shares', 'If set to false then an attempt to backup this system will not be made.', "default: #{archive_aspera_shares?}\n\n" ) { |v| @archive_aspera_shares = v }
+op.on('--[no-]archive-cantemo-portal', 'If set to false then an attempt to backup this system will not be made.', "default: #{archive_cantemo_portal?}\n\n" ) { |v| @archive_cantemo_portal = v }
 op.on('--archive-path PATH', 'The directory to use when building the archive.', "default: '#{archive_dir_base_path}'\n\n") { |v| puts "Setting Archive Path: '#{v}'"; @archive_dir_base_path = v }
-op.on('--[no-]dry-run', 'Will output the commands to be run but will not execute them.', "default: #{dry_run?}\n\n") { |v| @dry_run = v }
 op.on('--archive-name NAME', 'Will override the generated archive name with whatever is specified.', "example: #{archive_name}\n\n") { |v| @archive_name = v }
-op.on('--help', 'Display this message.') { puts op; exit }
+op.on('--[no-]dry-run', 'Will output the commands to be run but will not execute them.', "default: #{dry_run?}\n\n") { |v| @dry_run = v }
+op.on('--help', 'Display this message.') { puts op; puts banner_footer; exit }
 op.parse!
+
+# Look for specific systems being passes as arguments
+unless ARGV.empty?
+  @archive_aspera_console = false
+  @archive_aspera_enterprise = false
+  @archive_aspera_faspex = false
+  @archive_aspera_orchestrator = false
+  @archive_aspera_shares = false
+  @archive_cantemo_portal = false
+end
+
+ARGV.each do |val|
+  _val = val.downcase
+  case _val
+    when 'all'
+      @archive_aspera_console = true
+      @archive_aspera_enterprise = true
+      @archive_aspera_faspex = true
+      @archive_aspera_orchestrator = true
+      @archive_aspera_shares = true
+      @archive_cantemo_portal = true
+    when 'aspera_console';      @archive_aspera_console       = true
+    when 'aspera_enterprise';   @archive_aspera_enterprise    = true
+    when 'aspera_faspex';       @archive_aspera_faspex        = true
+    when 'aspera_orchestrator'; @archive_aspera_orchestrator  = true
+    when 'aspera_shares';       @archive_aspera_shares        = true
+    when 'cantemo_portal';      @archive_cantemo_portal       = true
+    else
+      abort <<-ERRMSG
+      Unknown System Name: #{_val}
+      Known System Names:
+        all
+        aspera_console
+        aspera_enterprise
+        aspera_faspex
+        aspera_orchestrator
+        aspera_shares
+        cantemo_portal
+      ERRMSG
+  end
+
+end
+
 
 class MultiIO
   def initialize(*targets); @targets = targets end
@@ -64,6 +165,18 @@ def echo(message, options = { })
 end
 
 
+def archive_aspera_console(task = { })
+  console_backup_dir_path = '/opt/aspera/console/backup/'
+
+  command_line = %(asctl console:backup_database)
+  execute(command_line)
+
+  tar_command_line = build_tar_command_line(:name => 'aspera_console_database', :path => '$NEW_ARCHIVE_DIR')
+  command_line = %(export NEW_ARCHIVE_DIR=$(find "#{console_backup_dir_path}" -mindepth 1 -maxdepth 1 -type d | tail -1);#{tar_command_line};unset NEW_ARCHIVE_DIR)
+  execute(command_line)
+
+end
+
 # def archive_aspera_connect(task = { })
 #   configuration_file_path = task[:configuration_file_path] || '/Library/Aspera/etc/aspera.conf'
 #   shares_backup_executable_path = task[:backup_executable_path] || '/opt/aspera/shares/u/setup/bin/backup'
@@ -74,12 +187,27 @@ end
 
 def archive_aspera_enterprise(task = { })
 
+  # we put the enterprise backup into it's own path so that we can find the directory that it creates
+  aspera_enterprise_archive_dir = File.join(archive_dir, 'aspera_enterprise_archive')
+  execute(%(mkdir -p "#{aspera_enterprise_archive_dir}"))
+
   configuration_file_path = task[:configuration_file_path] || '/opt/aspera/etc/aspera.conf'
   shares_backup_executable_path = task[:backup_executable_path] || '/opt/aspera/bin/asnodeadmin'
 
   archive_path(:name => 'aspera_connect_config', :path => configuration_file_path)
-  execute(%("#{shares_backup_executable_path}" -b "#{archive_dir}"))
+  execute(%("#{shares_backup_executable_path}" -b "#{aspera_enterprise_archive_dir}"))
 
+end
+
+def archive_aspera_faspex(task = { })
+  console_backup_dir_path = '/opt/aspera/console/backup/'
+
+  command_line = %(asctl faspex:backup_database)
+  execute(command_line)
+
+  tar_command_line = build_tar_command_line(:name => 'aspera_faspex_database', :path => '$NEW_ARCHIVE_DIR')
+  command_line = %(export NEW_ARCHIVE_DIR=$(find "#{console_backup_dir_path}" -mindepth 1 -maxdepth 1 -type d | tail -1);#{tar_command_line};unset NEW_ARCHIVE_DIR)
+  execute(command_line)
 end
 
 def archive_aspera_orchestrator(task = { })
@@ -89,14 +217,16 @@ def archive_aspera_orchestrator(task = { })
   commands << 'cd /opt/aspera/orchestrator'
   commands << %(ruby script/runner 'FileUtils.cp(Snapshot.config_dump("#{_archive_name}").path, "#{archive_dir}")')
   execute(commands.join(';'))
-
 end
 
 def archive_aspera_shares(task = { })
-  shares_backup_executable_path = task[:backup_executable_path] || '/opt/aspera/shares/u/setup/bin/backup'
-  execute(%("#{shares_backup_executable_path}" -b "#{archive_dir}"))
 
-  # TODO To facilitate recovery the backup directory needs to be recorded
+  # we put the shares backup into it's own path so that we can find the directory that it creates
+  aspera_shares_archive_dir = File.join(archive_dir, 'aspera_shares_archive')
+  execute(%(mkdir -p "#{aspera_shares_archive_dir}"))
+
+  shares_backup_executable_path = task[:backup_executable_path] || '/opt/aspera/shares/u/setup/bin/backup'
+  execute(%("#{shares_backup_executable_path}" -b "#{aspera_shares_archive_dir}"))
 end
 
 def archive_elasticsearch_index(args = { })
@@ -119,102 +249,6 @@ def archive_elasticsearch_index(args = { })
 
   host = args[:host] || 'localhost'
   port = args[:port] || 9200
-
-
-  # Invoke Flush POST $index/_flush
-
-  # Invoke Close POST $index/_close
-
-  # Copy Files
-
-
-=begin
-      def api_request(http_method, endpoint, body=nil)
-        http = Net::HTTP.new(host, port)
-        request = case http_method.to_sym
-        when :post
-          Net::HTTP::Post.new(endpoint)
-        end
-        request.body = body
-        begin
-          Timeout::timeout(180) do
-            http.request(request)
-          end
-        rescue => error
-          raise Errors::Database::Elasticsearch::QueryError, <<-EOS
-            Could not query the Elasticsearch API.
-            Host was: #{ host }
-            Port was: #{ port }
-            Endpoint was: #{ endpoint }
-            Error was: #{ error.message }
-          EOS
-        end
-      end
-
-      def flush_index_endpoint
-        backup_all? ? '/_flush' : "/#{ index }/_flush"
-      end
-
-      def invoke_flush!
-        response = api_request(:post, flush_index_endpoint)
-        unless response.code == '200'
-          raise Errors::Database::Elasticsearch::QueryError, <<-EOS
-            Could not flush the Elasticsearch index.
-            Host was: #{ host }
-            Port was: #{ port }
-            Endpoint was: #{ flush_index_endpoint }
-            Response body was: #{ response.body }
-            Response code was: #{ response.code }
-          EOS
-        end
-      end
-
-      def close_index_endpoint
-        "/#{ index }/_close"
-      end
-
-      def invoke_close!
-        response = api_request(:post, close_index_endpoint)
-        unless response.code == '200'
-          raise Errors::Database::Elasticsearch::QueryError, <<-EOS
-            Could not close the Elasticsearch index.
-            Host was: #{ host }
-            Port was: #{ port }
-            Endpoint was: #{ close_index_endpoint }
-            Response body was: #{ response.body }
-            Response code was: #{ response.code }
-          EOS
-        end
-      end
-
-      def copy!
-        src_path = File.join(path, 'nodes/0/indices')
-        src_path = File.join(src_path, index) unless backup_all?
-        unless File.exist?(src_path)
-          raise Errors::Database::Elasticsearch::NotFoundError, <<-EOS
-            Elasticsearch index directory not found
-            Directory path was #{ src_path }
-          EOS
-        end
-        pipeline = Pipeline.new
-        pipeline << "#{ utility(:tar) } -cf - #{ src_path }"
-        dst_ext = '.tar'
-        if model.compressor
-          model.compressor.compress_with do |cmd, ext|
-            pipeline << cmd
-            dst_ext << ext
-          end
-        end
-        dst_path = File.join(dump_path, dump_filename + dst_ext)
-        pipeline << "#{ utility(:cat) } > '#{ dst_path }'"
-        pipeline.run
-        unless pipeline.success?
-          raise Errors::Database::PipelineError,
-            "Elasticsearch Index '#{ index }' Backup Failed!\n" + pipeline.error_messages
-        end
-      end
-
-=end
 
 
 end
@@ -257,7 +291,11 @@ def archive_mysql_database(task = { })
   execute(command_line)
 end
 
-def archive_path(args = { })
+def determine_archive_path(args = { })
+
+end
+
+def build_tar_command_line(args = { })
   name = args[:name]
   path = args[:path]
   use_relative_path = args.fetch(:use_relative_path, true)
@@ -277,7 +315,11 @@ def archive_path(args = { })
   # `tar cvzf cantemo_portal_configs.tgz /opt/cantemo/portal/configs`
   # `tar cvzf cantemo_portal_configs.tgz /opt/cantemo/portal/configs`
 
-  command_line = %(#{prefix}#{use_sudo ? 'sudo ' : ''}tar czvf "#{target_file_path}" "#{path}")
+  %(#{prefix}#{use_sudo ? 'sudo ' : ''}tar czvf "#{target_file_path}" "#{path}")
+end
+
+def archive_path(args = { })
+  command_line = build_tar_command_line(args)
   execute(command_line)
 end
 
@@ -357,7 +399,7 @@ class BaseArchive
 
 end
 
-@existing_constants = Object.constants
+# @existing_constants = Object.constants
 
 # class AsperaConnectServerArchive < BaseArchive
 # # @see http://download.asperasoft.com/download/docs/entsrv/3.5.4/cs_admin_linux/pdf2/ConnectServer_Admin_3.5.4_Linux.pdf
@@ -408,6 +450,26 @@ end
 #
 # end
 
+class AsperaConsoleServerArchive < BaseArchive
+  # @see http://download.asperasoft.com/download/docs/console/2.5.1/admin_linux/webhelp/index.html#dita/backing_up_console_database.html
+
+  TASKS = [
+    { :type => :archive_aspera_console },
+
+    # None of the paths are in the documentation but did show up when the
+    # { :type => :archive_path, :name => 'aspera_common_apache_config', :path => '/opt/aspera/common/apache/apache.rb.yml' },
+    # { :type => :archive_path, :name => 'aspera_common_mysql_config', :path => '/opt/aspera/common/mysql/mysql.rb.yml' },
+    # { :type => :archive_path, :name => 'aspera_console_config_file', :path => '/opt/aspera/console/console.rb.yml' },
+    # { :type => :archive_path, :name => 'aspera_console_config_dir', :path => '/opt/aspera/console/config' },
+
+    { :type => :archive_path, :name => 'aspera_common_dir', :path => '/opt/aspera/common' },
+    { :type => :archive_path, :name => 'aspera_console_dir', :path => '/opt/aspera/console' },
+
+
+  ]
+
+end
+
 class AsperaEnterpriseServerArchive < BaseArchive
 # @see http://download.asperasoft.com/download/docs/entsrv/3.5.4/es_admin_linux/pdf2/EnterpriseServer_Admin_3.5.4_Linux.pdf
 
@@ -445,9 +507,26 @@ class AsperaEnterpriseServerArchive < BaseArchive
 =end
 
   TASKS = [
+      { :type => :archive_aspera_enterprise },
       { :type => :archive_path, :name => 'aspera_enterprise_config', :path => '/opt/aspera/etc' },
   ]
 
+
+end
+
+class AsperaFaspexArchive < BaseArchive
+  # @see http://download.asperasoft.com/download/docs/faspex/3.9.1/admin_linux/webhelp/index.html#dita/backup.html
+
+  TASKS = [
+
+    { :type => :archive_aspera_faspex },
+
+    { :type => :archive_path, :name => 'aspera_faspex_config', :path => '/opt/aspera/faspex.rb.yml' },
+    { :type => :archive_path, :name => 'aspera_faspex_config_dir_yml', :path => '/opt/aspera/config/*.yml' },
+    { :type => :archive_path, :name => 'aspera_faspex_config_license', :path => '/opt/aspera/config/aspera.faspex.*.aspera-license' },
+    { :type => :archive_path, :name => 'aspera_faspex_config_mongrel_cluster', :path => '/opt/aspera/config/mongrel_cluster/mongrel_cluster.yml' },
+
+  ]
 
 end
 
@@ -484,20 +563,22 @@ class CantemoPortalArchive < BaseArchive
   # require 'inifile'
 
   TASKS = [
+
+      # Paths
       { :type => :archive_path, :name => 'cantemo_portal_configs',            :path => '/opt/cantemo/portal/configs' },
       { :type => :archive_path, :name => 'cantemo_portal_elasticsearch_conf', :path => '/etc/elasticsearch' },
       { :type => :archive_path, :name => 'cantemo_portal_etc',                :path => '/etc/cantemo/portal/' },
       { :type => :archive_path, :name => 'cantemo_portal_glassfish_domain',   :path => '/opt/glassfish3/glassfish/domains/domain1/config/domain.xml' },
-      { :type => :archive_path, :name => 'cantemo_portal_nginx',              :path => '/etc/nginx/conf.d/portal.conf' },
-      { :type => :archive_path, :name => 'cantemo_portal_media',              :path => '/opt/cantemo/portal/portal_media' },
       { :type => :archive_path, :name => 'cantemo_portal_glassfish_solr',     :path => '/opt/glassfish3/glassfish/solrhome' },
+      { :type => :archive_path, :name => 'cantemo_portal_media',              :path => '/opt/cantemo/portal/portal_media' },
+      { :type => :archive_path, :name => 'cantemo_portal_nginx',              :path => '/etc/nginx/conf.d/portal.conf' },
+      { :type => :archive_path, :name => 'cantemo_portal_rabbitmq',           :path => '/var/lib/rabbitmq' },
       { :type => :archive_path, :name => 'cantemo_portal_rabbitmq_conf',      :path => '/etc/rabbitmq' },
       { :type => :archive_path, :name => 'cantemo_portal_themes',             :path => '/opt/cantemo/portal/portal_themes' },
       { :type => :archive_path, :name => 'cantemo_portal_thumbnails',         :path => '/srv/thumbnail' },
       { :type => :archive_path, :name => 'cantemo_portal_usermedia',          :path => '/opt/cantemo/portal/usermedia' },
 
       # Postgres Databases
-      # { :type => :archive_postgresql_database, :name => 'cantemo_portal_db', :database => { :name => 'portal', :username => 'portal', :password => 'p0rtal' } },
       { :type => :archive_postgresql_database, :name => 'cantemo_portal_db', :database => { :name => 'portal', :username => 'postgres', :password => 'postgres' } },
       { :type => :archive_postgresql_database, :name => 'cantemo_vidispine_db', :database => { :name => 'vidispine', :username => 'postgres', :password => 'postgres' } },
 
@@ -514,9 +595,9 @@ class CantemoPortalArchive < BaseArchive
       # /etc/elasticsearch/
       { :type => :archive_elasticsearch_index, :name => 'cantemo_portal_elasticsearch' }
 
-  # RabbitMQ
-  # /var/lib/rabbitmq
-  # /etc/rabbitmq/
+      # RabbitMQ
+      # /var/lib/rabbitmq
+      # /etc/rabbitmq/
   ]
 
   # def self.tasks
@@ -555,96 +636,72 @@ class CantemoPortalArchive < BaseArchive
 end
 
 class AsperaOrchestratorArchive < BaseArchive
-  # export GEM_HOME="/opt/aspera/orchestrator/vendor/dependencies/linux-gnu"
-  # cd /opt/aspera/orchestrator
-  # ruby script/runner_light 'puts Snapshot.config_dump.path'
-  #
-  # [root@ip-10-179-169-57 orchestrator]# ruby script/runner_light -h
-  # Usage: script/runner_light [options] ('Some.ruby(code)' or a filename)
-  #
-  #     -e, --environment=name           Specifies the environment for the runner to operate under (test/development/production).
-  #                                      Default: development
-  #
-  #     -h, --help                       Show this help message.
-  #
-  # You can also use runner as a shebang line for your scripts like this:
-  # -------------------------------------------------------------
-  # #!/usr/bin/env /media/APPS/opt/aspera/Orchestrator_2.1.0.94708-00012/script/runner_light
-  #
-  # Product.find(:all).each { |p| p.price *= 2 ; p.save! }
-  # -------------------------------------------------------------
-  # [root@ip-10-179-169-57 orchestrator]# ruby script/runner_light 'snapshot = Snapshot.config_dump; puts snapshot.path'
-  # An install specific config file can be created at /opt/aspera/var/config/orchestrator/orchestrator.yml to overwrite defaults
-  # /opt/aspera/var/archive/orchestrator/snapshots/Snapshot_20150314001015.snap
 
   TASKS = [
 
-      { :type => :archive_aspera_orchestrator },
+    { :type => :archive_aspera_orchestrator },
 
-      { :type => :archive_path, :name => 'orchestrator_apache_config', :path => '/opt/aspera/common/apache/conf' },
-      { :type => :archive_path, :name => 'orchestrator_mysql_config', :path => '/opt/aspera/common/mysql/my.ini' },
-      # MySQL Configuration
+    { :type => :archive_path, :name => 'orchestrator_apache_config', :path => '/opt/aspera/common/apache/conf' },
+    { :type => :archive_path, :name => 'orchestrator_mysql_config', :path => '/opt/aspera/common/mysql/my.ini' },
+    # MySQL Configuration
 
 
-      # { :type => :archive_path, :name => 'orchestrator_config', :path => '/opt/aspera/orchestrator/var/config' },
-      #
-      # { :type => :archive_mysql_database, :name => 'orchestrator_db', :database => { :name => 'orchestrator', :port => '4406', :username => 'mysql', :password => 'aspera' } }
+    # { :type => :archive_path, :name => 'orchestrator_config', :path => '/opt/aspera/orchestrator/var/config' },
+    #
+    # { :type => :archive_mysql_database, :name => 'orchestrator_db', :database => { :name => 'orchestrator', :port => '4406', :username => 'mysql', :password => 'aspera' } }
 
-      # Portlets
-      { :type => :archive_path, :name => 'orchestrator_aspera_portlets', :path => '/opt/aspera/orchestrator/portlets' },
-      { :type => :archive_path, :name => 'orchestrator_aspera_portlets_in_var_config', :path => '/opt/aspera/var/config/orchestrator/portlets' },
-  # /opt/aspera/orchestrator/portlets
-  # /opt/aspera/var/config/orchestrator/portlets
+    # Portlets
+    { :type => :archive_path, :name => 'orchestrator_aspera_portlets', :path => '/opt/aspera/orchestrator/portlets' },
+    { :type => :archive_path, :name => 'orchestrator_aspera_portlets_in_var_config', :path => '/opt/aspera/var/config/orchestrator/portlets' },
+
+    # /opt/aspera/orchestrator/portlets
+    # /opt/aspera/var/config/orchestrator/portlets
 
   ]
 end
 
-
-# module Ubiquity
-#
-#   module Continuity
-#
-#     class Backup
-#
-#       class Task
-#
-#       end
-#
-#
-#     end
-#
-#   end
-#
-# end
-#
-# UBackup = Ubiquity::Continuity::Backup
-
 # backup_tasks = OrchestratorArchive.tasks
-
-backup_tasks = (Object.constants - @existing_constants).delete_if { |obj| !Object.const_get(obj).respond_to?(:tasks) }.map { |obj| Object.const_get(obj).tasks }.flatten
 # backup_tasks = CantemoPortalArchive.tasks + AsperaOrchestratorArchive.tasks
-logger.debug { "Tasks: #{backup_tasks.length}" }
+#backup_tasks = (Object.constants - @existing_constants).delete_if { |obj| !Object.const_get(obj).respond_to?(:tasks) }.map { |obj| Object.const_get(obj).tasks }.flatten
+
+to_archive = [ ]
+to_archive << AsperaConsoleServerArchive if archive_aspera_console?
+to_archive << AsperaEnterpriseServerArchive if archive_aspera_enterprise?
+to_archive << AsperaFaspexArchive if archive_aspera_faspex?
+to_archive << AsperaOrchestratorArchive if archive_aspera_orchestrator?
+to_archive << AsperaSharesArchive if archive_aspera_shares?
+to_archive << CantemoPortalArchive if archive_cantemo_portal?
+
 begin
-  backup_tasks.each do |task|
-    logger.debug { "Processing Task: #{task.inspect}" }
-    case task[:type]
-      # when :archive_aspera_connect; archive_aspera_connect(task)
-      when :archive_aspera_enterprise; archive_aspera_enterprise(task)
-      when :archive_aspera_orchestrator; archive_aspera_orchestrator(task)
-      when :archive_aspera_shares; archive_aspera_shares(task)
-      # when :archive_elasticsearch_index; archive_elasticsearch_index(task)
-      # when :archive_mysql_database; archive_mysql_database(task)
-      when :archive_path; archive_path(task)
-      when :archive_postgresql_database; archive_postgresql_database(task)
-      # when :archive_redis_database; archive_redis_database(task)
+  to_archive.each do |archive|
+    echo "# ### #{archive.name} start ###"
+    backup_tasks = archive.tasks
+
+    logger.debug { "Tasks: (#{backup_tasks.length}) #{backup_tasks.inspect}" }
+    backup_tasks.each do |task|
+      logger.debug { "Processing Task: #{task.inspect}" }
+      case task[:type]
+        # when :archive_aspera_connect; archive_aspera_connect(task)
+        when :archive_aspera_console; archive_aspera_console(task)
+        when :archive_aspera_faspex; archive_aspera_faspex(task)
+        when :archive_aspera_enterprise; archive_aspera_enterprise(task)
+        when :archive_aspera_orchestrator; archive_aspera_orchestrator(task)
+        when :archive_aspera_shares; archive_aspera_shares(task)
+        # when :archive_elasticsearch_index; archive_elasticsearch_index(task)
+        # when :archive_mysql_database; archive_mysql_database(task)
+        when :archive_path; archive_path(task)
+        when :archive_postgresql_database; archive_postgresql_database(task)
+        # when :archive_redis_database; archive_redis_database(task)
+      end
     end
+    echo "# ### #{archive.name} end ###"
   end
 
   execute(%(cd "#{archive_dir_base_path}";tar czvf "#{archive_file_name}" "#{archive_name}"))
   echo %(Archive Created: '#{File.join(archive_dir_base_path, archive_file_name)}')
 
 ensure
-  logger.info { "Command#{dry_run? ? 's' : ' History'}:\n#{@command_history.join("\n")}" } if (dry_run? || output_command_history?)
+  logger.info { "Command#{dry_run? ? 's (Dry Run)' : ' History'}:\n#{@command_history.join("\n")}" } if (dry_run? || output_command_history?)
   Dir.chdir(preserved_working_dir)
 end
 
