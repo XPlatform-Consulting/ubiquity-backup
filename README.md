@@ -2,6 +2,28 @@
 
 ## Usage
 
+Installation
+    Pre-requisites
+    git
+    ruby
+    rubygems
+    bundler
+    
+Install Pre-requisites on CentOS
+
+Execute the following:
+           yum install -y git ruby ruby-devel rubygems	
+           gem install bundler
+
+Install Using Git
+Execute the following:
+           mkdir -p /opt/ubiquity
+           cd /opt/ubiquity
+           git clone https://github.com/XPlatform-Consulting/ubiquity-backup.git
+           cd ubiquity-backup
+           bundle update
+
+
 ### Backup
 
     Usage: ubiquity-backup [options]
