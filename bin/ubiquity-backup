@@ -88,42 +88,43 @@ op.parse!
 
 # Look for specific systems being passes as arguments
 unless ARGV.empty?
-  @archive_aspera_console = false
-  @archive_aspera_enterprise = false
-  @archive_aspera_faspex = false
+  @archive_aspera_console      = false
+  @archive_aspera_enterprise   = false
+  @archive_aspera_faspex       = false
   @archive_aspera_orchestrator = false
-  @archive_aspera_shares = false
-  @archive_cantemo_portal = false
-end
+  @archive_aspera_shares       = false
+  @archive_cantemo_portal      = false
 
-ARGV.each do |val|
-  _val = val.downcase
-  case _val
-    when 'all'
-      @archive_aspera_console = true
-      @archive_aspera_enterprise = true
-      @archive_aspera_faspex = true
-      @archive_aspera_orchestrator = true
-      @archive_aspera_shares = true
-      @archive_cantemo_portal = true
-    when 'aspera_console';      @archive_aspera_console       = true
-    when 'aspera_enterprise';   @archive_aspera_enterprise    = true
-    when 'aspera_faspex';       @archive_aspera_faspex        = true
-    when 'aspera_orchestrator'; @archive_aspera_orchestrator  = true
-    when 'aspera_shares';       @archive_aspera_shares        = true
-    when 'cantemo_portal';      @archive_cantemo_portal       = true
-    else
-      abort <<-ERRMSG
-      Unknown System Name: #{_val}
-      Known System Names:
-        all
-        aspera_console
-        aspera_enterprise
-        aspera_faspex
-        aspera_orchestrator
-        aspera_shares
-        cantemo_portal
-      ERRMSG
+  ARGV.each do |val|
+    _val = val.downcase
+    case _val
+      when 'all'
+        @archive_aspera_console      = true
+        @archive_aspera_enterprise   = true
+        @archive_aspera_faspex       = true
+        @archive_aspera_orchestrator = true
+        @archive_aspera_shares       = true
+        @archive_cantemo_portal      = true
+      when 'aspera_console';      @archive_aspera_console       = true
+      when 'aspera_enterprise';   @archive_aspera_enterprise    = true
+      when 'aspera_faspex';       @archive_aspera_faspex        = true
+      when 'aspera_orchestrator'; @archive_aspera_orchestrator  = true
+      when 'aspera_shares';       @archive_aspera_shares        = true
+      when 'cantemo_portal';      @archive_cantemo_portal       = true
+      else
+        abort <<-ERRMSG
+        Unknown System Name: #{_val}
+        Known System Names:
+          all
+          aspera_console
+          aspera_enterprise
+          aspera_faspex
+          aspera_orchestrator
+          aspera_shares
+          cantemo_portal
+        ERRMSG
+    end
+
   end
 
 end
@@ -204,7 +205,7 @@ def archive_aspera_faspex(task = { })
 end
 
 def archive_aspera_orchestrator(task = { })
-  _archive_name = task[:archive_name] || archive_name
+  _archive_name = "aspera_orchestrator_snapshot_#{archive_name}"
   commands = [ ]
   commands << 'export GEM_HOME="/opt/aspera/orchestrator/vendor/dependencies/linux-gnu"'
   commands << 'cd /opt/aspera/orchestrator'
@@ -226,7 +227,7 @@ def archive_elasticsearch_index(args = { })
   name = args[:name] || 'elasticsearch_snapshot'
   host = args[:host] || 'localhost'
   port = args[:port] || 9200
-  use_curl = args.fetch(:use_curl, true)
+  use_curl = args.fetch(:use_curl, (dry_run? || File.executable?('curl')))
 
   es_archive_dir = "#{archive_dir}/#{name}"
   execute(%(mkdir -p "#{es_archive_dir}"))
@@ -235,7 +236,7 @@ def archive_elasticsearch_index(args = { })
   execute(%(chown 777 "#{es_archive_dir}"))
 
 
-  data = %({ "type":fs,"settings":{"compress":true,"location":"#{archive_dir}" } })
+  data = %({ "type":"fs","settings":{"compress":true,"location":"#{archive_dir}" } })
   if use_curl and !dry_run?
     execute(%(curl -XPUT "#{host}:#{port}/_snapshot/#{archive_name}" -d '#{data}'))
     execute(%(curl -XPUT "#{host}:#{port}/_snapshot/#{archive_name}/snapshot_1?wait_for_completion=true"))
@@ -388,6 +389,14 @@ class BaseArchive
 end
 
 # @existing_constants = Object.constants
+
+class Archiware < BaseArchive
+
+  TASKS = [
+    { :type => :archive_path, :name => 'archiware', :path => '/usr/local/aw' }
+  ]
+
+end
 
 class AsperaConsoleServerArchive < BaseArchive
   # @see http://download.asperasoft.com/download/docs/console/2.5.1/admin_linux/webhelp/index.html#dita/backing_up_console_database.html
@@ -576,8 +585,8 @@ class AsperaOrchestratorArchive < BaseArchive
 
     { :type => :archive_aspera_orchestrator },
 
-    { :type => :archive_path, :name => 'orchestrator_apache_config', :path => '/opt/aspera/common/apache/conf' },
-    { :type => :archive_path, :name => 'orchestrator_mysql_config', :path => '/opt/aspera/common/mysql/my.ini' },
+    { :type => :archive_path, :name => 'aspera_orchestrator_apache_config', :path => '/opt/aspera/common/apache/conf' },
+    { :type => :archive_path, :name => 'aspera_orchestrator_mysql_config', :path => '/opt/aspera/common/mysql/my.ini' },
     # MySQL Configuration
 
 
@@ -586,8 +595,8 @@ class AsperaOrchestratorArchive < BaseArchive
     # { :type => :archive_mysql_database, :name => 'orchestrator_db', :database => { :name => 'orchestrator', :port => '4406', :username => 'mysql', :password => 'aspera' } }
 
     # Portlets
-    { :type => :archive_path, :name => 'orchestrator_aspera_portlets', :path => '/opt/aspera/orchestrator/portlets' },
-    { :type => :archive_path, :name => 'orchestrator_aspera_portlets_in_var_config', :path => '/opt/aspera/var/config/orchestrator/portlets' },
+    { :type => :archive_path, :name => 'aspera_orchestrator_aspera_portlets', :path => '/opt/aspera/orchestrator/portlets' },
+    { :type => :archive_path, :name => 'aspera_orchestrator_aspera_portlets_in_var_config', :path => '/opt/aspera/var/config/orchestrator/portlets' },
 
     # /opt/aspera/orchestrator/portlets
     # /opt/aspera/var/config/orchestrator/portlets
