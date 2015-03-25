@@ -350,9 +350,27 @@ def restore_cantemo_portal
   command_line = %(/etc/init.d/middleware start;supervisorctl start all)
   execute(command_line)
 
+  use_curl = File.executable?('curl')
+
+  data = %({ "type":"fs","settings":{"compress":true,"location":"#{archive_dir_path}" } })
+  if dry_run? || use_curl
+    execute(%(curl -XPOST "#{host}:#{port}/_all/_close"))
+    execute(%(curl -XPUT "#{host}:#{port}/_snapshot/#{archive_name}" -d '#{data}'))
+    execute(%(curl -XPOST "#{host}:#{port}/_snapshot/#{archive_name}/snapshot_1/_restore"))
+    execute(%(curl -XDELETE "#{host}:#{port}/_snapshot/#{archive_name}"))
+    execute(%(curl -XPOST "#{host}:#{port}/_all/_open"))
+  else
+    http = Net::HTTP.new(host, port)
+    http.post('/_all/_close', '')
+    http.put("/_snapshot/#{archive_name}", data)
+    http.put("/_snapshot/#{archive_name}/snapshot_1/_restore", '')
+    http.delete("/_snapshot/#{archive_name}")
+    http.post('/_all/_open', '')
+  end
+
   # Force a re-index of the items
-  command_line = %(/opt/cantemo/portal/manage.py reindex)
-  execute(command_line)
+  # command_line = %(/opt/cantemo/portal/manage.py reindex)
+  # execute(command_line)
 
   echo '### CANTEMO PORTAL RESTORATION - END ###'
 end
