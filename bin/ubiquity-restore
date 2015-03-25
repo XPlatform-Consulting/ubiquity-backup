@@ -255,47 +255,20 @@ def restore_cantemo_portal
   command_line = %(supervisorctl stop all;/etc/init.d/middleware stop)
   execute(command_line)
 
-  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_configs.tgz"#{tar_extract_to_string})
-  execute(command_line)
-
-  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_elasticsearch_conf.tgz"#{tar_extract_to_string})
-  execute(command_line)
-
-  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_etc.tgz"#{tar_extract_to_string})
-  execute(command_line)
-
-  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_configs.tgz"#{tar_extract_to_string})
-  execute(command_line)
-
-  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_elasticsearch_conf.tgz"#{tar_extract_to_string})
-  execute(command_line)
-
-  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_etc.tgz"#{tar_extract_to_string})
-  execute(command_line)
-
-  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_glassfish_domain.tgz"#{tar_extract_to_string})
-  execute(command_line)
-
-  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_nginx.tgz"#{tar_extract_to_string})
-  execute(command_line)
-
-  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_media.tgz"#{tar_extract_to_string})
-  execute(command_line)
-
-  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_glassfish_solr.tgz"#{tar_extract_to_string})
-  execute(command_line)
-
-  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_rabbitmq_conf.tgz"#{tar_extract_to_string})
-  execute(command_line)
-
-  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_themes.tgz"#{tar_extract_to_string})
-  execute(command_line)
-
-  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_thumbnails.tgz"#{tar_extract_to_string})
-  execute(command_line)
-
-  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_usermedia.tgz"#{tar_extract_to_string})
-  execute(command_line)
+  untar_archive_file('cantemo_portal_configs.tgz')
+  untar_archive_file('cantemo_portal_elasticsearch_conf.tgz')
+  untar_archive_file('cantemo_portal_etc.tgz')
+  untar_archive_file('cantemo_portal_configs.tgz')
+  untar_archive_file('cantemo_portal_elasticsearch_conf.tgz')
+  untar_archive_file('cantemo_portal_etc.tgz')
+  untar_archive_file('cantemo_portal_glassfish_domain.tgz')
+  untar_archive_file('cantemo_portal_nginx.tgz')
+  untar_archive_file('cantemo_portal_media.tgz')
+  untar_archive_file('cantemo_portal_glassfish_solr.tgz')
+  untar_archive_file('cantemo_portal_rabbitmq_conf.tgz')
+  untar_archive_file('cantemo_portal_themes.tgz')
+  untar_archive_file('cantemo_portal_thumbnails.tgz')
+  untar_archive_file('cantemo_portal_usermedia.tgz')
 
 
   # command_line = %(export PGPASSWORD=postgres;"/usr/bin/psql" -h localhost -U postgres -c "DROP DATABASE portal;";unset PGPASSWORD)
