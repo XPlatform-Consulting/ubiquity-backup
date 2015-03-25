@@ -54,7 +54,8 @@ op.parse!
 def logger; @logger end
 logger.level = Logger::DEBUG
 
-archive_file_path = ARGV.first
+archive_file_path = ARGV.shift
+abort "Archive File Not Found. '#{archive_file_path}'" unless dry_run? or File.exist?(archive_file_path)
 
 @command_history = [ ]
 
@@ -93,7 +94,8 @@ def untar_archive_file(archive_file_name, options = { })
 end
 
 # archive_file_name = 'ubiquity-backup_20150317-8646-awcuf4.tgz'
-archive_name = File.basename(archive_file_path, '.*')
+@archive_name = File.basename(archive_file_path, '.*')
+def archive_name; @archive_name end
 
 @archive_dir_path = File.join(archive_dir_base_path, archive_name)
 def archive_dir_path; @archive_dir_path end
