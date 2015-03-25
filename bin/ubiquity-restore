@@ -26,7 +26,7 @@ def restore_aspera_console?; @restore_aspera_console end
 @restore_aspera_enterprise = true
 def restore_aspera_enterprise?; @restore_aspera_enterprise end
 
-@restore_aspera_faspex = false
+@restore_aspera_faspex = true
 def restore_aspera_faspex?; @restore_aspera_faspex end
 
 @restore_aspera_shares = false
@@ -171,6 +171,29 @@ def restore_aspera_enterprise
 end
 restore_aspera_enterprise if restore_aspera_enterprise?
 
+# @see http://download.asperasoft.com/download/docs/faspex/3.9.1/admin_linux/webhelp/index.html#dita/backup_restore.html
+def restore_aspera_faspex
+  echo '# ### ASPERA FASPEX RESTORATION - BEGIN ###'
+
+  faspex_base_path = '/opt/aspera/faspex'
+
+  unless dry_run?
+    unless File.exists?(faspex_base_path)
+      warn "Could not find the Aspera Faspex Directory. Aborting Aspera Faspex Restoration\n\tPath Not Found: '#{faspex_base_path}'"
+    end
+  end
+
+  untar_archive_file('aspera_faxpex_config.tgz')
+  untar_archive_file('aspera_faspex_config_dir.tgz')
+  untar_archive_file('aspera_faspex_database.tgz')
+
+  command_line = %(export NEW_ARCHIVE_DIR=$(tar ztf "#{archive_dir_path}/aspera_faspex_database.tgz" | tail -1 | xargs dirname);asctl faspex:restore_database "$NEW_ARCHIVE_DIR";unset NEW_ARCHIVE_DIR)
+  execute(command_line)
+
+  echo '# ### ASPERA FASPEX RESTORATION - END ###'
+end
+restore_aspera_faspex if restore_aspera_faspex?
+
 def restore_aspera_orchestrator
   echo '# ### ASPERA ORCHESTRATOR RESTORATION - BEGIN ###'
 
@@ -216,29 +239,6 @@ def restore_aspera_orchestrator
   echo '# ### ASPERA ORCHESTRATOR RESTORATION - END ###'
 end
 restore_aspera_orchestrator if restore_aspera_orchestrator?
-
-# @see http://download.asperasoft.com/download/docs/faspex/3.9.1/admin_linux/webhelp/index.html#dita/backup_restore.html
-def restore_aspera_faspex
-  echo '# ### ASPERA FASPEX RESTORATION - BEGIN ###'
-
-  faspex_base_path = '/opt/aspera/faspex'
-
-  unless dry_run?
-    unless File.exists?(faspex_base_path)
-      warn "Could not find the Aspera Faspex Directory. Aborting Aspera Faspex Restoration\n\tPath Not Found: '#{faspex_base_path}'"
-    end
-  end
-
-  untar_archive_file('aspera_faxpex_config.tgz')
-  untar_archive_file('aspera_faspex_config_dir.tgz')
-  untar_archive_file('aspera_faspex_database.tgz')
-
-  command_line = %(export NEW_ARCHIVE_DIR=$(tar ztf "#{archive_dir_path}/aspera_faspex_database.tgz" | tail -1 | xargs dirname);asctl faspex:restore_database "$NEW_ARCHIVE_DIR";unset NEW_ARCHIVE_DIR)
-  execute(command_line)
-
-  echo '# ### ASPERA FASPEX RESTORATION - END ###'
-end
-restore_aspera_faspex if restore_aspera_faspex?
 
 def restore_aspera_shares
 
