@@ -189,6 +189,19 @@ end
 
 # @!group Archive Methods
 
+def archive_archiware(task = { })
+  archiware_dir_path = '/usr/local/aw'
+
+  unless dry_run?
+    return unless File.exist?(archiware_dir_path)
+
+    return unless File.executable?('nsdchat')
+  end
+
+  execute(%(nsdchat -c srvinfo lexxvers > "#{File.join(archive_dir, 'archiware_version')}"))
+
+end
+
 def archive_aspera_console(task = { })
   console_backup_dir_path = '/opt/aspera/console/backup/'
 
@@ -267,11 +280,11 @@ def archive_elasticsearch_index(args = { })
     http.put("/_snapshot/#{archive_name}/snapshot_1?wait_for_completion=true", '')
     http.delete("/_snapshot/#{archive_name}")
   end
-
 end
 
+# @see http://dev.mysql.com/doc/refman/5.6/en/mysqldump.html
 def archive_mysql_database(task = { })
-  # http://dev.mysql.com/doc/refman/5.6/en/mysqldump.html
+
 
   args = task[:database]
 
@@ -411,9 +424,10 @@ end
 
 # @existing_constants = Object.constants
 
-class Archiware < BaseArchive
+class ArchiwareArchive < BaseArchive
 
   TASKS = [
+    { :type => :archive_archiware },
     { :type => :archive_path, :name => 'archiware', :path => '/usr/local/aw' }
   ]
 
@@ -551,6 +565,7 @@ end
 #backup_tasks = (Object.constants - @existing_constants).delete_if { |obj| !Object.const_get(obj).respond_to?(:tasks) }.map { |obj| Object.const_get(obj).tasks }.flatten
 
 to_archive = [ ]
+to_archive << ArchiwareArchive if archive_archiware?
 to_archive << AsperaConsoleServerArchive if archive_aspera_console?
 to_archive << AsperaEnterpriseServerArchive if archive_aspera_enterprise?
 to_archive << AsperaFaspexArchive if archive_aspera_faspex?
