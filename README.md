@@ -93,7 +93,7 @@ Execute the following:
 
 Dry Run
 
-    ubiquity-backup
+    ubiquity-backup --dry-run
 
 Non-Dry Run
 
@@ -131,7 +131,7 @@ Non-Dry Run
 
 Dry Run
 
-    ubiquity-restore "/tmp/ubiquity-backup_20150319-15511-156k4nk.tgz"
+    ubiquity-restore "/tmp/ubiquity-backup_20150319-15511-156k4nk.tgz" --dry-run
 
 Non-Dry Run
 
