@@ -187,7 +187,9 @@ def restore_aspera_faspex
   untar_archive_file('aspera_faspex_config_dir.tgz')
   untar_archive_file('aspera_faspex_database.tgz')
 
-  command_line = %(export NEW_ARCHIVE_DIR=$(tar ztf "#{archive_dir_path}/aspera_faspex_database.tgz" | tail -1 | xargs dirname);asctl faspex:restore_database "$NEW_ARCHIVE_DIR";unset NEW_ARCHIVE_DIR)
+  _archive_restore_base_dir = archive_restore_base_dir || '/'
+  _archive_restore_base_dir << '/' unless archive_restore_base_dir.end_with?('/')
+  command_line = %(export NEW_ARCHIVE_DIR=$(tar ztf "#{archive_dir_path}/aspera_faspex_database.tgz" | tail -1 | xargs dirname);yes "y" | asctl faspex:restore_database "#{_archive_restore_base_dir}$NEW_ARCHIVE_DIR";unset NEW_ARCHIVE_DIR)
   execute(command_line)
 
   echo '# ### ASPERA FASPEX RESTORATION - END ###'
