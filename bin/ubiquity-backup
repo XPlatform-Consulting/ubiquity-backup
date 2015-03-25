@@ -2,6 +2,8 @@
 lib_path = File.expand_path('../../lib', __FILE__)
 $:.unshift(lib_path) unless $:.include?(lib_path) or !File.exists?(lib_path)
 
+ARGV << '--help' if ARGV.empty?
+
 require 'rubygems'
 require 'fileutils'
 require 'logger'
@@ -60,7 +62,7 @@ Usage: #{op.program_name} [options] [system name(s)]
 Examples:
 
   1. Dry Run of a Backup of All Supported Systems (Default)
-    # #{op.program_name}
+    # #{op.program_name} --dry-run
 
   2. Actual Backup of All Supported Systems
     # #{op.program_name} --no-dry-run
@@ -178,25 +180,16 @@ def archive_aspera_console(task = { })
 
 end
 
-# def archive_aspera_connect(task = { })
-#   configuration_file_path = task[:configuration_file_path] || '/Library/Aspera/etc/aspera.conf'
-#   shares_backup_executable_path = task[:backup_executable_path] || '/opt/aspera/shares/u/setup/bin/backup'
-#
-#   archive_path(:name => 'aspera_connect_config', :path => configuration_file_path)
-#   execute(%("#{shares_backup_executable_path}" -b "#{temp_dir}"))
-# end
-
 def archive_aspera_enterprise(task = { })
 
-  # we put the enterprise backup into it's own path so that we can find the directory that it creates
-  aspera_enterprise_archive_dir = File.join(archive_dir, 'aspera_enterprise_archive')
-  execute(%(mkdir -p "#{aspera_enterprise_archive_dir}"))
+  configuration_file_path = task[:configuration_dir_path] || '/opt/aspera/etc/'
+  var_file_path = task[:var_dir_path] || '/opt/aspera/var'
+  backup_executable_path = task[:backup_executable_path] || '/opt/aspera/bin/asnodeadmin'
 
-  configuration_file_path = task[:configuration_file_path] || '/opt/aspera/etc/aspera.conf'
-  shares_backup_executable_path = task[:backup_executable_path] || '/opt/aspera/bin/asnodeadmin'
+  archive_path(:name => 'aspera_enterprise_config', :path => configuration_file_path)
+  archive_path(:name => 'aspera_enterprise_var', :path => var_file_path)
 
-  archive_path(:name => 'aspera_connect_config', :path => configuration_file_path)
-  execute(%("#{shares_backup_executable_path}" -b "#{aspera_enterprise_archive_dir}"))
+  execute(%("#{backup_executable_path}" -b "#{archive_dir}/aspera_enterprise_database.backup"))
 
 end
 
@@ -227,7 +220,7 @@ def archive_aspera_shares(task = { })
   execute(%(mkdir -p "#{aspera_shares_archive_dir}"))
 
   shares_backup_executable_path = task[:backup_executable_path] || '/opt/aspera/shares/u/setup/bin/backup'
-  execute(%("#{shares_backup_executable_path}" -b "#{aspera_shares_archive_dir}"))
+  execute(%("#{shares_backup_executable_path}" "#{aspera_shares_archive_dir}"))
 end
 
 def archive_elasticsearch_index(args = { })
@@ -240,18 +233,29 @@ def archive_elasticsearch_index(args = { })
   # http://chrissimpson.co.uk/elasticsearch-snapshot-restore-api.html
   # https://www.google.com/search?q=elasticsearch+backup+index+sh&oq=elasticsearch+backup
   # https://karussell.wordpress.com/2011/07/10/how-to-backup-elasticsearch-with-rsync/
-  task = args.dup
+  # task = args.dup
+  #
+  # gzip = args.fetch(:gzip, true)
 
-  gzip = args.fetch(:gzip, true)
-
-  target_full_file_path = args[:target_full_file_path] || File.join(archive_dir, "#{task[:name]}#{gzip ? '.tgz' : '.tar'}")
-  index = args[:index] || 'all'
-  path = args[:path]
-
+  # target_full_file_path = args[:target_full_file_path] || File.join(archive_dir, "#{task[:name]}#{gzip ? '.tgz' : '.tar'}")
+  # index = args[:index] || 'all'
+  # path = args[:path]
+  name = args[:name]
+  es_archive_dir = "#{archive_dir}/#{name}"
+  execute(%(mkdir -p "#{es_archive_dir}"))
+  execute(%(chown 777 "#{es_archive_dir}"))
   host = args[:host] || 'localhost'
   port = args[:port] || 9200
 
 
+  # http = Net::HTTP.new(host, port)
+  # http.put("/_snapshot/#{archive_name}", %({ "type":fs,"settings":{"compress":true,"location":"#{archive_dir}" } }))
+  # http.put("/_snapshot/#{archive_name}/snapshot_1?wait_for_completion=true", '')
+  # http.delete("/_snapshot/#{archive_name}")
+
+  execute(%(curl -XPUT "#{host}:#{port}/_snapshot/#{archive_name}" -d '{ "type":"fs","settings": { "compress":true,"location":"#{es_archive_dir}" } }'))
+  execute(%(curl -XPUT "#{host}:#{port}/_snapshot/#{archive_name}/snapshot_1?wait_for_completion=true"))
+  execute(%(curl -XDELETE "#{host}:#{port}/_snapshot/#{archive_name}"))
 end
 
 def archive_mysql_database(task = { })
@@ -288,12 +292,7 @@ def archive_mysql_database(task = { })
   command_line << " > #{target_full_file_path}"
   #command_line = %("#{mysqldump_executable_path}" #{username ? " --user=#{username}" : ''}#{password ? " -password=#{password}" : ''}#{hostname ? " -h#{hostname}" : ''}#{port ? " --port=#{port}" : ''}#{table_list ? " #{table_list.join(' ')}" : ''} #{database_name} > #{target_full_file_path} )
 
-
   execute(command_line)
-end
-
-def determine_archive_path(args = { })
-
 end
 
 def build_tar_command_line(args = { })
@@ -688,7 +687,7 @@ begin
         when :archive_aspera_enterprise; archive_aspera_enterprise(task)
         when :archive_aspera_orchestrator; archive_aspera_orchestrator(task)
         when :archive_aspera_shares; archive_aspera_shares(task)
-        # when :archive_elasticsearch_index; archive_elasticsearch_index(task)
+        when :archive_elasticsearch_index; archive_elasticsearch_index(task)
         # when :archive_mysql_database; archive_mysql_database(task)
         when :archive_path; archive_path(task)
         when :archive_postgresql_database; archive_postgresql_database(task)
