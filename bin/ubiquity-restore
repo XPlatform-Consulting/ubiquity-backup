@@ -1,13 +1,18 @@
 #!/usr/bin/env ruby
+lib_path = File.expand_path('../../lib', __FILE__)
+$:.unshift(lib_path) unless $:.include?(lib_path) or !File.exists?(lib_path)
+
 require 'rubygems'
 require 'logger'
 require 'optparse'
-# require 'tmpdir'
 
 ARGV << '--help' if ARGV.empty?
 
 @archive_dir_base_path = '/tmp' # Dir.tmpdir
 def archive_dir_base_path; @archive_dir_base_path end
+
+@archive_restore_base_dir = '/'
+def archive_restore_base_dir; @archive_restore_base_dir end
 
 @dry_run = true
 def dry_run?; @dry_run end
@@ -15,8 +20,17 @@ def dry_run?; @dry_run end
 @output_command_history = false
 def output_command_history?; @output_command_history end
 
-@restore_aspera_enterprise = false
+@restore_aspera_console = true
+def restore_aspera_console?; @restore_aspera_console end
+
+@restore_aspera_enterprise = true
 def restore_aspera_enterprise?; @restore_aspera_enterprise end
+
+@restore_aspera_faspex = false
+def restore_aspera_faspex?; @restore_aspera_faspex end
+
+@restore_aspera_shares = false
+def restore_aspera_shares?; @restore_aspera_shares end
 
 @restore_aspera_orchestrator = true
 def restore_aspera_orchestrator?; @restore_aspera_orchestrator end
@@ -25,7 +39,8 @@ def restore_aspera_orchestrator?; @restore_aspera_orchestrator end
 def restore_cantemo_portal?; @restore_cantemo_portal end
 
 op = OptionParser.new
-op.banner = %(Usage: #{File.basename($0)} [options] <archive-file-name>\n\nExample: #{File.basename($0)} "/tmp/ubiquity-backup_20150319-15511-156k4nk.tgz"\n\nOptions:)
+op.program_name = File.basename($0)
+op.banner = %(Usage: #{op.program_name} [options] <archive-file-name>\n\nExample: #{op.program_name} "/tmp/ubiquity-backup_20150319-15511-156k4nk.tgz"\n\nOptions:)
 op.on('--archive-dir-path PATH', 'The path of the directory to extract the archive directory in.', "default: #{archive_dir_base_path}\n\n") { |v| @archive_dir_base_path = v }
 op.on('--[no-]dry-run', 'Will output the commands to be run but will not execute them.', "default: #{dry_run?}\n\n") { |v| @dry_run = v }
 op.on('--[no-]output-command-history', 'Will show the commands that were run. This is redundant if noop is true.') { |v| @output_command_history = v }
@@ -67,8 +82,18 @@ def echo(message, options = { })
   end
 end
 
+def tar_extract_to_string
+  @tar_extract_to_string ||= (archive_restore_base_dir ? %( -C "#{archive_restore_base_dir}") : '')
+end
+
+
+def untar_archive_file(archive_file_name, options = { })
+  command_line = %(sudo tar xzvf "#{archive_dir_path}/#{archive_file_name}"#{tar_extract_to_string})
+  execute(command_line)
+end
+
 # archive_file_name = 'ubiquity-backup_20150317-8646-awcuf4.tgz'
-archive_name = File.basename(archive_file_path, '.tgz')
+archive_name = File.basename(archive_file_path, '.*')
 
 @archive_dir_path = File.join(archive_dir_base_path, archive_name)
 def archive_dir_path; @archive_dir_path end
@@ -78,72 +103,151 @@ def archive_dir_path; @archive_dir_path end
 def archive_file_name; @archive_file_name end
 
 
+# Extract the snapshot archive inside of the archive_dir_path
 # command_line = %(tar xzvf /tmp/#{archive_file_name} -C "#{archive_dir_path}")
-command_line = %(tar xzvf "#{archive_file_path}" -C "/")
+# command_line = %(tar xzvf "#{archive_file_path}"#{tar_extract_to_string})
+command_line = %(tar xzvf "#{archive_file_path}" -C "#{archive_dir_path}")
 execute(command_line)
 
 # command_line =  %(cd "#{archive_dir_path}")
 # execute(command_line)
 
-if restore_aspera_enterprise?
-  # command_line = %(sudo tar xzvf "#{archive_dir_path}/aspera_connect_config.tgz" -C "/")
-  # execute(command_line)
+# @see http://download.asperasoft.com/download/docs/console/2.5.1/admin_linux/webhelp/index.html#dita/restore_console_database.html
+def restore_aspera_console
+  echo '# ### ASPERA CONSOLE RESTORATION - BEGIN ###'
 
-  command_line = %(sudo tar xzvf "#{archive_dir_path}/aspera_enterprise_config.tgz" -C "/")
+  console_base_path = '/opt/aspera/console'
+
+  unless dry_run?
+    unless File.exists?(console_base_path)
+      warn "Could not find the Aspera Console Directory. Aborting Aspera Console Restoration\n\tPath Not Found: '#{console_base_path}'"
+    end
+  end
+
+  untar_archive_file 'aspera_common_dir.tgz'
+  untar_archive_file 'aspera_console_dir.tgz'
+
+  command_line = %(sudo asctl console:stop)
   execute(command_line)
+
+  console_backup_dir_path = '/opt/aspera/console/backup/'
+  aspera_console_database_restore_dir = "#{archive_dir_path}/aspera_console_database"
+
+  command_line = %(export NEW_ARCHIVE_DIR=$(find "#{aspera_console_database_restore_dir}" -mindepth 1 -maxdepth 1 -type d | tail -1 | xargs basename);asctl -v console:restore_database "#{console_backup_dir_path}/$NEW_ARCHIVE_DIR";unset NEW_ARCHIVE_DIR)
+  execute(command_line)
+
+  command_line = %(sudo asctl console:start)
+  execute(command_line)
+
+  echo '# ### ASPERA CONSOLE RESTORATION - END ###'
 end
+restore_aspera_console if restore_aspera_console?
+
+# @see http://download.asperasoft.com/download/docs/entsrv/3.5.4/es_admin_linux/webhelp/index.html#dita/redis_backup.html
+def restore_aspera_enterprise
+  echo '# ### ASPERA ENTERPRISE RESTORATION - BEGIN ###'
+
+  asnodeadmin_path = '/opt/aspera/bin/asnodeadmin'
+
+  unless dry_run?
+    unless File.exists?(asnodeadmin_path)
+      warn "Could not find the Aspera asnodeadmin. Aborting Aspera Orchestrator Restoration.\n\tFile Not Found: '#{asnodeadmin_path}'"
+      return
+    end
+  end
+
+  untar_archive_file('aspera_enterprise_config.tgz')
+  untar_archive_file('aspera_enterprise_var.tgz')
+
+  command_line = %(sudo "#{asnodeadmin_path}" -r "#{archive_dir_path}/aspera_enterprise_database.snapshot")
+  execute(command_line)
+
+  command_line = %(sudo /etc/init.d/asperanoded restart)
+  execute(command_line)
+
+  echo '# ### ASPERA ENTERPRISE RESTORATION - END ###'
+end
+restore_aspera_enterprise if restore_aspera_enterprise?
 
 def restore_aspera_orchestrator
   echo '# ### ASPERA ORCHESTRATOR RESTORATION - BEGIN ###'
 
+  aspera_orchestrator_dir_path = '/opt/aspera/orchestrator'
+
   snapshot_file_path = "/opt/aspera/var/archive/orchestrator/#{archive_name}.snap"
 
-  unless !dry_run? && File.exists?(snapshot_file_path)
-    warn "Could not find the Aspera Orchestrator Snapshot. Aborting Aspera Orchestrator Restoration.\n File Not Found: #{snapshot_file_path}"
-    return
+  unless dry_run?
+
+    unless File.exists?(snapshot_file_path)
+      warn "Could not find the Aspera Orchestrator Snapshot. Aborting Aspera Orchestrator Restoration.\n\tFile Not Found: '#{snapshot_file_path}'"
+      return
+    end
+
+    unless File.exists?(aspera_orchestrator_dir_path)
+      warn "Could not find the Aspera Orchestrator Directory. Aborting Aspera Orchestrator Restoration.\n\tPath Not Found: '#{aspera_orchestrator_dir_path}'"
+      return
+    end
+
   end
 
-  command_line = %(/opt/aspera/orchestrator/bin/orchestrator all kill)
+  command_line = %(#{aspera_orchestrator_dir_path}/bin/orchestrator all kill)
   execute(command_line)
 
-  command_line = %(sudo tar xzvf "#{archive_dir_path}/orchestrator_apache_config.tgz" -C "/")
-  execute(command_line)
-
-  command_line = %(sudo tar xzvf "#{archive_dir_path}/orchestrator_mysql_config.tgz" -C "/")
-  execute(command_line)
-
-  command_line = %(sudo tar xzvf "#{archive_dir_path}/orchestrator_aspera_portlets.tgz" -C "/")
-  execute(command_line)
-
-  command_line = %(sudo tar xzvf "#{archive_dir_path}/orchestrator_aspera_portlets_in_var_config.tgz" -C "/")
-  execute(command_line)
+  untar_archive_file('orchestrator_apache_config.tgz')
+  untar_archive_file('orchestrator_mysql_config.tgz')
+  untar_archive_file('orchestrator_aspera_portlets.tgz')
+  untar_archive_file('orchestrator_aspera_portlets_in_var_config.tgz')
 
   # command_line = %(cp "#{archive_dir_path}/#{archive_name}.snap" "/opt/aspera/var/archive/orchestrator/#{archive_name}.snap")
   # command_line = %(cp "#{archive_dir_path}/#{archive_name}.snap" "/opt/aspera/var/archive/orchestrator/snapshots/#{archive_name}.snap")
-
   command_line = %(cp "#{archive_dir_path}/#{archive_name}.snap" "#{snapshot_file_path}")
   execute(command_line)
 
-  # command_line = %(export GEM_HOME="/opt/aspera/orchestrator/vendor/dependencies/linux-gnu";cd /opt/aspera/orchestrator;ruby script/runner script/snapshot "/opt/aspera/var/archive/orchestrator/#{archive_name}.snap")
-  command_line = %(export GEM_HOME="/opt/aspera/orchestrator/vendor/dependencies/linux-gnu";cd /opt/aspera/orchestrator;ruby script/runner script/snapshot "#{snapshot_file_path}")
-  # command_line = %(export GEM_HOME="/opt/aspera/orchestrator/vendor/dependencies/linux-gnu";cd /opt/aspera/orchestrator;ruby script/runner 'puts Snapshot.extract_snapshot("/opt/aspera/var/archive/orchestrator/#{archive_name}.snap")')
+  command_line = %(export GEM_HOME="#{aspera_orchestrator_dir_path}/vendor/dependencies/linux-gnu";cd "#{aspera_orchestrator_dir_path}";ruby script/runner script/snapshot "#{snapshot_file_path}")
   # command_line = %(export GEM_HOME="/opt/aspera/orchestrator/vendor/dependencies/linux-gnu";cd /opt/aspera/orchestrator;ruby script/runner 'puts Snapshot.extract_snapshot("#{snapshot_file_path}")')
+  # We use the system method to execute this call because application hangs were occurring when using backticks
   execute(command_line, :method => :system)
 
-  # command_line = %(/opt/aspera/orchestrator/bin/orchestrator all start && echo "Done.")
-  # execute(command_line)
+  # command_line = %(/opt/aspera/orchestrator/bin/orchestrator all start)
+  # execute(command_line, :method => :system)
 
   echo '# ### ASPERA ORCHESTRATOR RESTORATION - END ###'
 end
-
 restore_aspera_orchestrator if restore_aspera_orchestrator?
 
+# @see http://download.asperasoft.com/download/docs/faspex/3.9.1/admin_linux/webhelp/index.html#dita/backup_restore.html
+def restore_aspera_faspex
+  echo '# ### ASPERA FASPEX RESTORATION - BEGIN ###'
+
+  faspex_base_path = '/opt/aspera/faspex'
+
+  unless dry_run?
+    unless File.exists?(faspex_base_path)
+      warn "Could not find the Aspera Faspex Directory. Aborting Aspera Faspex Restoration\n\tPath Not Found: '#{faspex_base_path}'"
+    end
+  end
+
+  untar_archive_file('aspera_faxpex_config')
+  untar_archive_file('aspera_faspex_config_dir')
+  untar_archive_file('aspera_faspex_database')
+
+  command_line = %(export NEW_ARCHIVE_DIR=$(tar ztf "#{archive_dir_path}/aspera_faspex_database.tgz" | tail -1 | xargs dirname);asctl faspex:restore_database "$NEW_ARCHIVE_DIR";unset NEW_ARCHIVE_DIR)
+  execute(command_line)
+
+  echo '# ### ASPERA FASPEX RESTORATION - END ###'
+end
+restore_aspera_faspex if restore_aspera_faspex?
+
+def restore_aspera_shares
+
+end
+restore_aspera_shares if restore_aspera_shares?
 
 def restore_cantemo_portal
   echo '# ### CANTEMO PORTAL RESTORATION - BEGIN ###'
 
   cantemo_portal_configs_archive_file_path = "#{archive_dir_path}/cantemo_portal_configs.tgz"
-  unless !dry_run? && File.exists?(cantemo_portal_configs_archive_file_path)
+  unless dry_run? || File.exists?(cantemo_portal_configs_archive_file_path)
     warn "Could not find the Cantemo Portal Configs Archive. Aborting Cantemo Portal Restoration.\n File Not Found: #{cantemo_portal_configs_archive_file_path}"
     return
   end
@@ -151,46 +255,46 @@ def restore_cantemo_portal
   command_line = %(supervisorctl stop all;/etc/init.d/middleware stop)
   execute(command_line)
 
-  command_line = %(sudo tar czvf "#{archive_dir_path}/cantemo_portal_configs.tgz" -C "/")
+  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_configs.tgz"#{tar_extract_to_string})
   execute(command_line)
 
-  command_line = %(sudo tar czvf "#{archive_dir_path}/cantemo_portal_elasticsearch_conf.tgz" -C "/")
+  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_elasticsearch_conf.tgz"#{tar_extract_to_string})
   execute(command_line)
 
-  command_line = %(sudo tar czvf "#{archive_dir_path}/cantemo_portal_etc.tgz" -C "/")
+  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_etc.tgz"#{tar_extract_to_string})
   execute(command_line)
 
-  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_configs.tgz" -C "/")
+  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_configs.tgz"#{tar_extract_to_string})
   execute(command_line)
 
-  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_elasticsearch_conf.tgz" -C "/")
+  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_elasticsearch_conf.tgz"#{tar_extract_to_string})
   execute(command_line)
 
-  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_etc.tgz" -C "/")
+  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_etc.tgz"#{tar_extract_to_string})
   execute(command_line)
 
-  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_glassfish_domain.tgz" -C "/")
+  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_glassfish_domain.tgz"#{tar_extract_to_string})
   execute(command_line)
 
-  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_nginx.tgz" -C "/")
+  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_nginx.tgz"#{tar_extract_to_string})
   execute(command_line)
 
-  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_media.tgz" -C "/")
+  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_media.tgz"#{tar_extract_to_string})
   execute(command_line)
 
-  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_glassfish_solr.tgz" -C "/")
+  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_glassfish_solr.tgz"#{tar_extract_to_string})
   execute(command_line)
 
-  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_rabbitmq_conf.tgz" -C "/")
+  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_rabbitmq_conf.tgz"#{tar_extract_to_string})
   execute(command_line)
 
-  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_themes.tgz" -C "/")
+  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_themes.tgz"#{tar_extract_to_string})
   execute(command_line)
 
-  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_thumbnails.tgz" -C "/")
+  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_thumbnails.tgz"#{tar_extract_to_string})
   execute(command_line)
 
-  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_usermedia.tgz" -C "/")
+  command_line = %(sudo tar xzvf "#{archive_dir_path}/cantemo_portal_usermedia.tgz"#{tar_extract_to_string})
   execute(command_line)
 
 
