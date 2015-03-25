@@ -2,14 +2,13 @@
 lib_path = File.expand_path('../../lib', __FILE__)
 $:.unshift(lib_path) unless $:.include?(lib_path) or !File.exists?(lib_path)
 
-ARGV << '--help' if ARGV.empty?
-
 require 'rubygems'
 require 'fileutils'
 require 'logger'
 require 'optparse'
 require 'shellwords'
-# require 'tempfile'
+
+ARGV << '--help' if ARGV.empty?
 
 @archive_aspera_console = true
 def archive_aspera_console?; @archive_aspera_console end
@@ -194,7 +193,7 @@ def archive_aspera_enterprise(task = { })
 end
 
 def archive_aspera_faspex(task = { })
-  console_backup_dir_path = '/opt/aspera/console/backup/'
+  console_backup_dir_path = '/opt/aspera/faspex/backup/'
 
   command_line = %(asctl faspex:backup_database)
   execute(command_line)
@@ -215,7 +214,7 @@ end
 
 def archive_aspera_shares(task = { })
 
-  # we put the shares backup into it's own path so that we can find the directory that it creates
+  # we put the shares backup into it's own path so that we can find the file that it creates
   aspera_shares_archive_dir = File.join(archive_dir, 'aspera_shares_archive')
   execute(%(mkdir -p "#{aspera_shares_archive_dir}"))
 
@@ -224,38 +223,30 @@ def archive_aspera_shares(task = { })
 end
 
 def archive_elasticsearch_index(args = { })
-  # http://stackoverflow.com/questions/12835937/elasticsearch-hot-backup-strategies
-  # https://github.com/meskyanichi/backup/pull/433/files
-  #
-  # http://www.elastic.co/guide/en/elasticsearch/reference/master/indices-open-close.html
-  # https://gist.github.com/nherment/1939828
-  # http://www.elastic.co/guide/en/elasticsearch/reference/current/modules-snapshots.html
-  # http://chrissimpson.co.uk/elasticsearch-snapshot-restore-api.html
-  # https://www.google.com/search?q=elasticsearch+backup+index+sh&oq=elasticsearch+backup
-  # https://karussell.wordpress.com/2011/07/10/how-to-backup-elasticsearch-with-rsync/
-  # task = args.dup
-  #
-  # gzip = args.fetch(:gzip, true)
-
-  # target_full_file_path = args[:target_full_file_path] || File.join(archive_dir, "#{task[:name]}#{gzip ? '.tgz' : '.tar'}")
-  # index = args[:index] || 'all'
-  # path = args[:path]
-  name = args[:name]
-  es_archive_dir = "#{archive_dir}/#{name}"
-  execute(%(mkdir -p "#{es_archive_dir}"))
-  execute(%(chown 777 "#{es_archive_dir}"))
+  name = args[:name] || 'elasticsearch_snapshot'
   host = args[:host] || 'localhost'
   port = args[:port] || 9200
+  use_curl = args.fetch(:use_curl, true)
+
+  es_archive_dir = "#{archive_dir}/#{name}"
+  execute(%(mkdir -p "#{es_archive_dir}"))
+
+  # We need elastic search to be able to write to the directory
+  execute(%(chown 777 "#{es_archive_dir}"))
 
 
-  # http = Net::HTTP.new(host, port)
-  # http.put("/_snapshot/#{archive_name}", %({ "type":fs,"settings":{"compress":true,"location":"#{archive_dir}" } }))
-  # http.put("/_snapshot/#{archive_name}/snapshot_1?wait_for_completion=true", '')
-  # http.delete("/_snapshot/#{archive_name}")
+  data = %({ "type":fs,"settings":{"compress":true,"location":"#{archive_dir}" } })
+  if use_curl and !dry_run?
+    execute(%(curl -XPUT "#{host}:#{port}/_snapshot/#{archive_name}" -d '#{data}'))
+    execute(%(curl -XPUT "#{host}:#{port}/_snapshot/#{archive_name}/snapshot_1?wait_for_completion=true"))
+    execute(%(curl -XDELETE "#{host}:#{port}/_snapshot/#{archive_name}"))
+  else
+    http = Net::HTTP.new(host, port)
+    http.put("/_snapshot/#{archive_name}", data)
+    http.put("/_snapshot/#{archive_name}/snapshot_1?wait_for_completion=true", '')
+    http.delete("/_snapshot/#{archive_name}")
+  end
 
-  execute(%(curl -XPUT "#{host}:#{port}/_snapshot/#{archive_name}" -d '{ "type":"fs","settings": { "compress":true,"location":"#{es_archive_dir}" } }'))
-  execute(%(curl -XPUT "#{host}:#{port}/_snapshot/#{archive_name}/snapshot_1?wait_for_completion=true"))
-  execute(%(curl -XDELETE "#{host}:#{port}/_snapshot/#{archive_name}"))
 end
 
 def archive_mysql_database(task = { })
@@ -346,12 +337,9 @@ def archive_postgresql_database(task = { })
   { :files => [ target_full_file_path ] }
 end
 
-def archive_redis_database(args = { })
-
-end
-
 def archive_solr_index(args = { })
   # https://cwiki.apache.org/confluence/display/solr/Backing+Up
+  # https://gist.github.com/ralph-tice/887414a7f8082a0cb828
 end
 
 @arguments = { }
@@ -401,62 +389,13 @@ end
 
 # @existing_constants = Object.constants
 
-# class AsperaConnectServerArchive < BaseArchive
-# # @see http://download.asperasoft.com/download/docs/entsrv/3.5.4/cs_admin_linux/pdf2/ConnectServer_Admin_3.5.4_Linux.pdf
-#
-# # @see http://download.asperasoft.com/download/docs/entsrv/3.5.4/cs_admin_osx/pdf2/ConnectServer_Admin_3.5.4_OSX.pdf
-#
-# =begin
-#   /Library/Aspera/etc
-#   /Library/Aspera/etc/aspera.conf
-#
-#   Redis DB Backup/Restore
-#     Instructions for backing up and restoring the database.
-#
-#     To back up and restore the Redis database (and your user data up to the point-in-time of the backup operation), follow
-#     the instructions below. Note that the backup and restore operations should be used for the following scenarios:
-#
-#     • If you need to change the Redis database port number (<db_port/> in aspera.conf), you should first back up
-#     the Redis database. Once you have changed the port number, you need to restore the database.
-#     • Basic backup and restore (after a data-loss event).
-#
-#     1. Back up the Redis database.
-#         Use the following command to back up your Redis database (before changing the port number):
-#         $ sudo /Library/Aspera/bin/asnodeadmin -b /your/backup/dir/
-#         database.backup
-#         Important: When backing up the Redis database, all user data up to that point-in-time will be saved to
-#         the backup file. Restoring the database (see Step 2, below) does not delete users added after this snapshot
-#         was taken. Thus, if you added any users after backing up the database, then they will still exist in the
-#         system and will not be affected by the restore operation.
-#
-#     2. Restore the Redis database.
-#         Use the following command to restore your Redis database:
-#         $ sudo /Library/Aspera/bin/asnodeadmin -r /your/backup/dir/
-#         database.backup
-#         Recall the "Important Note" in Step 1, which stated that restoring the database does not delete users added after
-#         the database snapshot was taken. If you do not want to keep users that have been added since the last backup
-#         operation, you can delete them after performing the restore with the asnodeadmin command -du username.
-#
-#     3. Restart the asperanoded service.
-#         Use the following command(s) to restart the asperanoded service (requires a restart rather than a reload):
-#         $ sudo launchctl stop com.aspera.asperanoded
-#         $ sudo launchctl start com.aspera.asperanoded
-# =end
-#
-#   TASKS = [
-#     { :type => :archive_path, :name => 'aspera_connect_config', :path => '/opt/aspera/etc' },
-#     #{ :type => :execute, :name => 'aspera_connect_db', :path => '/opt/aspera/shares/u/setup/bin/backup' }
-#   ]
-#
-# end
-
 class AsperaConsoleServerArchive < BaseArchive
   # @see http://download.asperasoft.com/download/docs/console/2.5.1/admin_linux/webhelp/index.html#dita/backing_up_console_database.html
 
   TASKS = [
     { :type => :archive_aspera_console },
 
-    # None of the paths are in the documentation but did show up when the
+    # None of the following paths are in the documentation but did show up when the backup utility ran
     # { :type => :archive_path, :name => 'aspera_common_apache_config', :path => '/opt/aspera/common/apache/apache.rb.yml' },
     # { :type => :archive_path, :name => 'aspera_common_mysql_config', :path => '/opt/aspera/common/mysql/mysql.rb.yml' },
     # { :type => :archive_path, :name => 'aspera_console_config_file', :path => '/opt/aspera/console/console.rb.yml' },
@@ -464,7 +403,6 @@ class AsperaConsoleServerArchive < BaseArchive
 
     { :type => :archive_path, :name => 'aspera_common_dir', :path => '/opt/aspera/common' },
     { :type => :archive_path, :name => 'aspera_console_dir', :path => '/opt/aspera/console' },
-
 
   ]
 
@@ -511,7 +449,6 @@ class AsperaEnterpriseServerArchive < BaseArchive
       { :type => :archive_path, :name => 'aspera_enterprise_config', :path => '/opt/aspera/etc' },
   ]
 
-
 end
 
 class AsperaFaspexArchive < BaseArchive
@@ -521,10 +458,8 @@ class AsperaFaspexArchive < BaseArchive
 
     { :type => :archive_aspera_faspex },
 
-    { :type => :archive_path, :name => 'aspera_faspex_config', :path => '/opt/aspera/faspex.rb.yml' },
-    { :type => :archive_path, :name => 'aspera_faspex_config_dir_yml', :path => '/opt/aspera/config/*.yml' },
-    { :type => :archive_path, :name => 'aspera_faspex_config_license', :path => '/opt/aspera/config/aspera.faspex.*.aspera-license' },
-    { :type => :archive_path, :name => 'aspera_faspex_config_mongrel_cluster', :path => '/opt/aspera/config/mongrel_cluster/mongrel_cluster.yml' },
+    { :type => :archive_path, :name => 'aspera_faspex_config', :path => '/opt/aspera/faspex/faspex.rb.yml' },
+    { :type => :archive_path, :name => 'aspera_faspex_config_dir', :path => '/opt/aspera/faspex/config' },
 
   ]
 
