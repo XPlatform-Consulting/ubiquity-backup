@@ -256,7 +256,7 @@ def archive_elasticsearch_index(args = { })
   # We need elastic search to be able to write to the directory
   execute(%(chown 777 "#{es_archive_dir}"))
 
-  data = %({ "type":"fs","settings":{"compress":true,"location":"#{archive_dir}" } })
+  data = %({ "type":"fs","settings":{"compress":true,"location":"#{es_archive_dir}" } })
   if dry_run? || use_curl
     execute(%(curl -XPUT "#{host}:#{port}/_snapshot/#{archive_name}" -d '#{data}'))
     execute(%(curl -XPUT "#{host}:#{port}/_snapshot/#{archive_name}/snapshot_1?wait_for_completion=true"))
