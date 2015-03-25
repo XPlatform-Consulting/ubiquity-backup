@@ -29,7 +29,7 @@ def restore_aspera_enterprise?; @restore_aspera_enterprise end
 @restore_aspera_faspex = true
 def restore_aspera_faspex?; @restore_aspera_faspex end
 
-@restore_aspera_shares = false
+@restore_aspera_shares = true
 def restore_aspera_shares?; @restore_aspera_shares end
 
 @restore_aspera_orchestrator = true
@@ -50,12 +50,56 @@ op.on('--[no-]restore-cantemo-portal', 'Will run through the commands to restore
 op.on('--help', 'Display this message.') { puts op; exit }
 op.parse!
 
+archive_file_path = ARGV.shift
+abort "Archive File Not Found. '#{archive_file_path}'" unless dry_run? or File.exist?(archive_file_path)
+
+# Look for specific systems being passes as arguments
+unless ARGV.empty?
+  @archive_aspera_console      = false
+  @archive_aspera_enterprise   = false
+  @archive_aspera_faspex       = false
+  @archive_aspera_orchestrator = false
+  @archive_aspera_shares       = false
+  @archive_cantemo_portal      = false
+
+  ARGV.each do |val|
+    _val = val.downcase
+    case _val
+      when 'all'
+        @archive_aspera_console      = true
+        @archive_aspera_enterprise   = true
+        @archive_aspera_faspex       = true
+        @archive_aspera_orchestrator = true
+        @archive_aspera_shares       = true
+        @archive_cantemo_portal      = true
+      when 'aspera_console';      @archive_aspera_console       = true
+      when 'aspera_enterprise';   @archive_aspera_enterprise    = true
+      when 'aspera_faspex';       @archive_aspera_faspex        = true
+      when 'aspera_orchestrator'; @archive_aspera_orchestrator  = true
+      when 'aspera_shares';       @archive_aspera_shares        = true
+      when 'cantemo_portal';      @archive_cantemo_portal       = true
+      else
+        abort <<-ERRMSG
+        Unknown System Name: #{_val}
+        Known System Names:
+          all
+          aspera_console
+          aspera_enterprise
+          aspera_faspex
+          aspera_orchestrator
+          aspera_shares
+          cantemo_portal
+        ERRMSG
+    end
+    # ARGV.each
+  end
+  # ARGV.empty?
+end
+
+
 @logger = Logger.new(STDOUT)
 def logger; @logger end
 logger.level = Logger::DEBUG
-
-archive_file_path = ARGV.shift
-abort "Archive File Not Found. '#{archive_file_path}'" unless dry_run? or File.exist?(archive_file_path)
 
 @command_history = [ ]
 
@@ -201,17 +245,22 @@ def restore_aspera_orchestrator
 
   aspera_orchestrator_dir_path = '/opt/aspera/orchestrator'
 
-  snapshot_file_path = "/opt/aspera/var/archive/orchestrator/#{archive_name}.snap"
+  snapshot_file_name = "aspera_orchestrator_snapshot_#{archive_name}.snap"
+  archive_snapshot_file_path = File.join(archive_dir_path, snapshot_file_name)
+
+  snapshot_dir_path = '/opt/aspera/var/archive/orchestrator'
+  snapshot_file_path = File.join(snapshot_dir_path, snapshot_file_name)
+
 
   unless dry_run?
 
-    unless File.exists?(snapshot_file_path)
-      warn "Could not find the Aspera Orchestrator Snapshot. Aborting Aspera Orchestrator Restoration.\n\tFile Not Found: '#{snapshot_file_path}'"
+    unless File.exists?(aspera_orchestrator_dir_path)
+      warn "Could not find the Aspera Orchestrator Directory. Aborting Aspera Orchestrator Restoration.\n\tPath Not Found: '#{aspera_orchestrator_dir_path}'"
       return
     end
 
-    unless File.exists?(aspera_orchestrator_dir_path)
-      warn "Could not find the Aspera Orchestrator Directory. Aborting Aspera Orchestrator Restoration.\n\tPath Not Found: '#{aspera_orchestrator_dir_path}'"
+    unless File.exists?(snapshot_dir_path)
+      warn "Could not find the Aspera Orchestrator Snapshot. Aborting Aspera Orchestrator Restoration.\n\tPath Not Found: '#{snapshot_dir_path}'"
       return
     end
 
@@ -220,14 +269,14 @@ def restore_aspera_orchestrator
   command_line = %(#{aspera_orchestrator_dir_path}/bin/orchestrator all kill)
   execute(command_line)
 
-  untar_archive_file('orchestrator_apache_config.tgz')
-  untar_archive_file('orchestrator_mysql_config.tgz')
-  untar_archive_file('orchestrator_aspera_portlets.tgz')
-  untar_archive_file('orchestrator_aspera_portlets_in_var_config.tgz')
+  untar_archive_file('aspera_orchestrator_apache_config.tgz')
+  untar_archive_file('aspera_orchestrator_mysql_config.tgz')
+  untar_archive_file('aspera_orchestrator_aspera_portlets.tgz')
+  untar_archive_file('aspera_orchestrator_aspera_portlets_in_var_config.tgz')
 
   # command_line = %(cp "#{archive_dir_path}/#{archive_name}.snap" "/opt/aspera/var/archive/orchestrator/#{archive_name}.snap")
   # command_line = %(cp "#{archive_dir_path}/#{archive_name}.snap" "/opt/aspera/var/archive/orchestrator/snapshots/#{archive_name}.snap")
-  command_line = %(cp "#{archive_dir_path}/#{archive_name}.snap" "#{snapshot_file_path}")
+  command_line = %(cp "#{archive_snapshot_file_path}" "#{snapshot_file_path}")
   execute(command_line)
 
   command_line = %(export GEM_HOME="#{aspera_orchestrator_dir_path}/vendor/dependencies/linux-gnu";cd "#{aspera_orchestrator_dir_path}";ruby script/runner script/snapshot "#{snapshot_file_path}")
@@ -242,7 +291,13 @@ def restore_aspera_orchestrator
 end
 restore_aspera_orchestrator if restore_aspera_orchestrator?
 
+# @see http://download.asperasoft.com/download/docs/shares/1.9.1/admin_linux/webhelp/index.html#dita/restore.html
 def restore_aspera_shares
+
+  shares_restore_executable_path = '/opt/aspera/shares/u/setup/bin/restore'
+  backup_dir = File.join(archive_dir_path, 'aspera_shares_archive')
+
+  execute(%(export UB_ASPERA_SHARES_BACKUP_DIR=$(find "#{backup_dir}" -mindepth 1 -maxdepth 1 -type d);"#{shares_restore_executable_path}" "$UB_ASPERA_SHARES_BACKUP_DIR";unset UB_ASPERA_SHARES_BACKUP_DIR))
 
 end
 restore_aspera_shares if restore_aspera_shares?
