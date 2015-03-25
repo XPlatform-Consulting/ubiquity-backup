@@ -360,18 +360,18 @@ def restore_cantemo_portal(args = { })
 
   data = %({ "type":"fs","settings":{"compress":true,"location":"#{File.join(archive_dir_path, 'cantemo_portal_elasticsearch')}" } })
   if dry_run? || use_curl
-    execute(%(curl -XPOST   "#{es_host}:#{es_port}/_all/_close"))
+    # execute(%(curl -XPOST   "#{es_host}:#{es_port}/_all/_close"))
     execute(%(curl -XPUT    "#{es_host}:#{es_port}/_snapshot/#{archive_name}" -d '#{data}'))
     execute(%(curl -XPOST   "#{es_host}:#{es_port}/_snapshot/#{archive_name}/snapshot_1/_restore"))
     execute(%(curl -XDELETE "#{es_host}:#{es_port}/_snapshot/#{archive_name}"))
-    execute(%(curl -XPOST   "#{es_host}:#{es_port}/_all/_open"))
+    # execute(%(curl -XPOST   "#{es_host}:#{es_port}/_all/_open"))
   else
     http = Net::HTTP.new(es_host, es_port)
-    http.post(   '/_all/_close', '')
+    # http.post(   '/_all/_close', '')
     http.put(    "/_snapshot/#{archive_name}", data)
     http.post(   "/_snapshot/#{archive_name}/snapshot_1/_restore", '')
     http.delete( "/_snapshot/#{archive_name}")
-    http.post(   '/_all/_open', '')
+    # http.post(   '/_all/_open', '')
   end
 
   # Force a re-index of the items
