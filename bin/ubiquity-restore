@@ -8,6 +8,10 @@ require 'optparse'
 
 ARGV << '--help' if ARGV.empty?
 
+# #################################################################################################################### #
+
+# @!group Default Parameter Values
+
 @archive_dir_base_path = '/tmp' # Dir.tmpdir
 def archive_dir_base_path; @archive_dir_base_path end
 
@@ -38,6 +42,12 @@ def restore_aspera_orchestrator?; @restore_aspera_orchestrator end
 @restore_cantemo_portal = true
 def restore_cantemo_portal?; @restore_cantemo_portal end
 
+# @!endgroup
+
+# #################################################################################################################### #
+
+# @!group Argument Handling
+
 op = OptionParser.new
 op.program_name = File.basename($0)
 op.banner = %(Usage: #{op.program_name} [options] <archive-file-name>\n\nExample: #{op.program_name} "/tmp/ubiquity-backup_20150319-15511-156k4nk.tgz"\n\nOptions:)
@@ -55,29 +65,29 @@ abort "Archive File Not Found. '#{archive_file_path}'" unless dry_run? or File.e
 
 # Look for specific systems being passes as arguments
 unless ARGV.empty?
-  @archive_aspera_console      = false
-  @archive_aspera_enterprise   = false
-  @archive_aspera_faspex       = false
-  @archive_aspera_orchestrator = false
-  @archive_aspera_shares       = false
-  @archive_cantemo_portal      = false
+  @restore_aspera_console      = false
+  @restore_aspera_enterprise   = false
+  @restore_aspera_faspex       = false
+  @restore_aspera_orchestrator = false
+  @restore_aspera_shares       = false
+  @restore_cantemo_portal      = false
 
   ARGV.each do |val|
-    _val = val.downcase
+    _val = val.downcase.gsub(/[-_]/, '')
     case _val
       when 'all'
-        @archive_aspera_console      = true
-        @archive_aspera_enterprise   = true
-        @archive_aspera_faspex       = true
-        @archive_aspera_orchestrator = true
-        @archive_aspera_shares       = true
-        @archive_cantemo_portal      = true
-      when 'aspera_console';      @archive_aspera_console       = true
-      when 'aspera_enterprise';   @archive_aspera_enterprise    = true
-      when 'aspera_faspex';       @archive_aspera_faspex        = true
-      when 'aspera_orchestrator'; @archive_aspera_orchestrator  = true
-      when 'aspera_shares';       @archive_aspera_shares        = true
-      when 'cantemo_portal';      @archive_cantemo_portal       = true
+        @restore_aspera_console      = true
+        @restore_aspera_enterprise   = true
+        @restore_aspera_faspex       = true
+        @restore_aspera_orchestrator = true
+        @restore_aspera_shares       = true
+        @restore_cantemo_portal      = true
+      when 'asperaconsole';      @restore_aspera_console       = true
+      when 'asperaenterprise';   @restore_aspera_enterprise    = true
+      when 'asperafaspex';       @restore_aspera_faspex        = true
+      when 'asperaorchestrator'; @restore_aspera_orchestrator  = true
+      when 'asperashares';       @restore_aspera_shares        = true
+      when 'cantemoportal';      @restore_cantemo_portal       = true
       else
         abort <<-ERRMSG
         Unknown System Name: #{_val}
@@ -95,6 +105,10 @@ unless ARGV.empty?
   end
   # ARGV.empty?
 end
+
+# @!endgroup Argument Handling
+
+# #################################################################################################################### #
 
 
 @logger = Logger.new(STDOUT)
@@ -149,14 +163,9 @@ def archive_dir_path; @archive_dir_path end
 def archive_file_name; @archive_file_name end
 
 
-# Extract the snapshot archive inside of the archive_dir_path
-# command_line = %(tar xzvf /tmp/#{archive_file_name} -C "#{archive_dir_path}")
-# command_line = %(tar xzvf "#{archive_file_path}"#{tar_extract_to_string})
-command_line = %(tar xzvf "#{archive_file_path}" -C "#{archive_dir_path}")
-execute(command_line)
+# #################################################################################################################### #
 
-# command_line =  %(cd "#{archive_dir_path}")
-# execute(command_line)
+# @!group Restore Methods
 
 # @see http://download.asperasoft.com/download/docs/console/2.5.1/admin_linux/webhelp/index.html#dita/restore_console_database.html
 def restore_aspera_console
@@ -172,14 +181,15 @@ def restore_aspera_console
 
   untar_archive_file 'aspera_common_dir.tgz'
   untar_archive_file 'aspera_console_dir.tgz'
+  untar_archive_file 'aspera_console_database.tgz'
 
   command_line = %(sudo asctl console:stop)
   execute(command_line)
 
-  console_backup_dir_path = '/opt/aspera/console/backup/'
-  aspera_console_database_restore_dir = "#{archive_dir_path}/aspera_console_database"
+  _archive_restore_base_dir = archive_restore_base_dir || '/'
+  _archive_restore_base_dir << '/' unless archive_restore_base_dir.end_with?('/')
+  command_line = %(export NEW_ARCHIVE_DIR=$(tar ztf "#{archive_dir_path}/aspera_console_database.tgz" | tail -1 | xargs dirname);yes "y" | asctl -v console:restore_database "#{_archive_restore_base_dir}$NEW_ARCHIVE_DIR";unset NEW_ARCHIVE_DIR)
 
-  command_line = %(export NEW_ARCHIVE_DIR=$(find "#{aspera_console_database_restore_dir}" -mindepth 1 -maxdepth 1 -type d | tail -1 | xargs basename);asctl -v console:restore_database "#{console_backup_dir_path}/$NEW_ARCHIVE_DIR";unset NEW_ARCHIVE_DIR)
   execute(command_line)
 
   command_line = %(sudo asctl console:start)
@@ -187,7 +197,6 @@ def restore_aspera_console
 
   echo '# ### ASPERA CONSOLE RESTORATION - END ###'
 end
-restore_aspera_console if restore_aspera_console?
 
 # @see http://download.asperasoft.com/download/docs/entsrv/3.5.4/es_admin_linux/webhelp/index.html#dita/redis_backup.html
 def restore_aspera_enterprise
@@ -213,7 +222,6 @@ def restore_aspera_enterprise
 
   echo '# ### ASPERA ENTERPRISE RESTORATION - END ###'
 end
-restore_aspera_enterprise if restore_aspera_enterprise?
 
 # @see http://download.asperasoft.com/download/docs/faspex/3.9.1/admin_linux/webhelp/index.html#dita/backup_restore.html
 def restore_aspera_faspex
@@ -238,7 +246,6 @@ def restore_aspera_faspex
 
   echo '# ### ASPERA FASPEX RESTORATION - END ###'
 end
-restore_aspera_faspex if restore_aspera_faspex?
 
 def restore_aspera_orchestrator
   echo '# ### ASPERA ORCHESTRATOR RESTORATION - BEGIN ###'
@@ -250,7 +257,6 @@ def restore_aspera_orchestrator
 
   snapshot_dir_path = '/opt/aspera/var/archive/orchestrator'
   snapshot_file_path = File.join(snapshot_dir_path, snapshot_file_name)
-
 
   unless dry_run?
 
@@ -289,7 +295,6 @@ def restore_aspera_orchestrator
 
   echo '# ### ASPERA ORCHESTRATOR RESTORATION - END ###'
 end
-restore_aspera_orchestrator if restore_aspera_orchestrator?
 
 # @see http://download.asperasoft.com/download/docs/shares/1.9.1/admin_linux/webhelp/index.html#dita/restore.html
 def restore_aspera_shares
@@ -300,9 +305,8 @@ def restore_aspera_shares
   execute(%(export UB_ASPERA_SHARES_BACKUP_DIR=$(find "#{backup_dir}" -mindepth 1 -maxdepth 1 -type d);"#{shares_restore_executable_path}" "$UB_ASPERA_SHARES_BACKUP_DIR";unset UB_ASPERA_SHARES_BACKUP_DIR))
 
 end
-restore_aspera_shares if restore_aspera_shares?
 
-def restore_cantemo_portal
+def restore_cantemo_portal(args = { })
   echo '# ### CANTEMO PORTAL RESTORATION - BEGIN ###'
 
   cantemo_portal_configs_archive_file_path = "#{archive_dir_path}/cantemo_portal_configs.tgz"
@@ -350,22 +354,24 @@ def restore_cantemo_portal
   command_line = %(/etc/init.d/middleware start;supervisorctl start all)
   execute(command_line)
 
+  es_host = args[:elasticsearch_host] || 'localhost'
+  es_port = args[:elasticsearch_port] || 9200
   use_curl = File.executable?('curl')
 
-  data = %({ "type":"fs","settings":{"compress":true,"location":"#{archive_dir_path}" } })
+  data = %({ "type":"fs","settings":{"compress":true,"location":"#{File.join(archive_dir_path, 'cantemo_portal_elasticsearch')}" } })
   if dry_run? || use_curl
-    execute(%(curl -XPOST "#{host}:#{port}/_all/_close"))
-    execute(%(curl -XPUT "#{host}:#{port}/_snapshot/#{archive_name}" -d '#{data}'))
-    execute(%(curl -XPOST "#{host}:#{port}/_snapshot/#{archive_name}/snapshot_1/_restore"))
-    execute(%(curl -XDELETE "#{host}:#{port}/_snapshot/#{archive_name}"))
-    execute(%(curl -XPOST "#{host}:#{port}/_all/_open"))
+    execute(%(curl -XPOST   "#{es_host}:#{es_port}/_all/_close"))
+    execute(%(curl -XPUT    "#{es_host}:#{es_port}/_snapshot/#{archive_name}" -d '#{data}'))
+    execute(%(curl -XPOST   "#{es_host}:#{es_port}/_snapshot/#{archive_name}/snapshot_1/_restore"))
+    execute(%(curl -XDELETE "#{es_host}:#{es_port}/_snapshot/#{archive_name}"))
+    execute(%(curl -XPOST   "#{es_host}:#{es_port}/_all/_open"))
   else
-    http = Net::HTTP.new(host, port)
-    http.post('/_all/_close', '')
-    http.put("/_snapshot/#{archive_name}", data)
-    http.put("/_snapshot/#{archive_name}/snapshot_1/_restore", '')
-    http.delete("/_snapshot/#{archive_name}")
-    http.post('/_all/_open', '')
+    http = Net::HTTP.new(es_host, es_port)
+    http.post(   '/_all/_close', '')
+    http.put(    "/_snapshot/#{archive_name}", data)
+    http.post(   "/_snapshot/#{archive_name}/snapshot_1/_restore", '')
+    http.delete( "/_snapshot/#{archive_name}")
+    http.post(   '/_all/_open', '')
   end
 
   # Force a re-index of the items
@@ -375,6 +381,19 @@ def restore_cantemo_portal
   echo '### CANTEMO PORTAL RESTORATION - END ###'
 end
 
+# @!endgroup Restore Methods
+
+# #################################################################################################################### #
+
+# Extract the snapshot archive inside of the archive_dir_path
+command_line = %(tar xzvf "#{archive_file_path}" -C "#{archive_dir_base_path}")
+execute(command_line)
+
+restore_aspera_console if restore_aspera_console?
+restore_aspera_enterprise if restore_aspera_enterprise?
+restore_aspera_faspex if restore_aspera_faspex?
+restore_aspera_orchestrator if restore_aspera_orchestrator?
+restore_aspera_shares if restore_aspera_shares?
 restore_cantemo_portal if restore_cantemo_portal?
 
 puts "Command#{dry_run? ? 's' : ' History'}:\n#{@command_history.join("\n")}" if (dry_run? || output_command_history?)
