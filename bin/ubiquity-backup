@@ -10,6 +10,9 @@ require 'shellwords'
 
 ARGV << '--help' if ARGV.empty?
 
+@archive_archiware = true
+def archive_archiware?; @archive_archiware end
+
 @archive_aspera_console = true
 def archive_aspera_console?; @archive_aspera_console end
 
@@ -74,6 +77,7 @@ Examples:
 
 Options:
 BANNER
+op.on('--[no-]archive-archiware', 'If set to false then an attempt to backup this system will not be made.', "default: #{archive_archiware?}\n\n" ) { |v| @archive_archiware = v }
 op.on('--[no-]archive-aspera-console', 'If set to false then an attempt to backup this system will not be made.', "default: #{archive_aspera_console?}\n\n" ) { |v| @archive_aspera_console = v }
 op.on('--[no-]archive-aspera-enterprise', 'If set to false then an attempt to backup this system will not be made.', "default: #{archive_aspera_enterprise?}\n\n" ) { |v| @archive_aspera_enterprise = v }
 op.on('--[no-]archive-aspera-faspex', 'If set to false then an attempt to backup this system will not be made.', "default: #{archive_aspera_faspex?}\n\n" ) { |v| @archive_aspera_faspex = v }
@@ -88,6 +92,7 @@ op.parse!
 
 # Look for specific systems being passes as arguments
 unless ARGV.empty?
+  @archive_archiware           = false
   @archive_aspera_console      = false
   @archive_aspera_enterprise   = false
   @archive_aspera_faspex       = false
@@ -96,21 +101,23 @@ unless ARGV.empty?
   @archive_cantemo_portal      = false
 
   ARGV.each do |val|
-    _val = val.downcase
+    _val = val.downcase.gsub(/[-_]/, '')
     case _val
       when 'all'
+        @archive_archiware           = true
         @archive_aspera_console      = true
         @archive_aspera_enterprise   = true
         @archive_aspera_faspex       = true
         @archive_aspera_orchestrator = true
         @archive_aspera_shares       = true
         @archive_cantemo_portal      = true
-      when 'aspera_console';      @archive_aspera_console       = true
-      when 'aspera_enterprise';   @archive_aspera_enterprise    = true
-      when 'aspera_faspex';       @archive_aspera_faspex        = true
-      when 'aspera_orchestrator'; @archive_aspera_orchestrator  = true
-      when 'aspera_shares';       @archive_aspera_shares        = true
-      when 'cantemo_portal';      @archive_cantemo_portal       = true
+      when 'archiware';          @archive_archiware            = true
+      when 'asperaconsole';      @archive_aspera_console       = true
+      when 'asperaenterprise';   @archive_aspera_enterprise    = true
+      when 'asperafaspex';       @archive_aspera_faspex        = true
+      when 'asperaorchestrator'; @archive_aspera_orchestrator  = true
+      when 'asperashares';       @archive_aspera_shares        = true
+      when 'cantemoportal';      @archive_cantemo_portal       = true
       else
         abort <<-ERRMSG
         Unknown System Name: #{_val}
@@ -124,9 +131,9 @@ unless ARGV.empty?
           cantemo_portal
         ERRMSG
     end
-
+    # ARGV.each
   end
-
+  # ARGV.empty?
 end
 
 
@@ -137,7 +144,6 @@ class MultiIO
   def add_target(target); @targets << target end
   def targets; @targets end
 end
-
 
 class Logger
   def add_target(target)
@@ -167,7 +173,7 @@ def echo(message, options = { })
   end
 end
 
-
+# #################################################################################################################### #
 def archive_aspera_console(task = { })
   console_backup_dir_path = '/opt/aspera/console/backup/'
 
@@ -237,7 +243,7 @@ def archive_elasticsearch_index(args = { })
 
 
   data = %({ "type":"fs","settings":{"compress":true,"location":"#{archive_dir}" } })
-  if use_curl and !dry_run?
+  if dry_run? || use_curl
     execute(%(curl -XPUT "#{host}:#{port}/_snapshot/#{archive_name}" -d '#{data}'))
     execute(%(curl -XPUT "#{host}:#{port}/_snapshot/#{archive_name}/snapshot_1?wait_for_completion=true"))
     execute(%(curl -XDELETE "#{host}:#{port}/_snapshot/#{archive_name}"))
@@ -388,6 +394,7 @@ class BaseArchive
 
 end
 
+# #################################################################################################################### #
 # @existing_constants = Object.constants
 
 class Archiware < BaseArchive
