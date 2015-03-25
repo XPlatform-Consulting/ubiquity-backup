@@ -50,14 +50,35 @@ def restore_cantemo_portal?; @restore_cantemo_portal end
 
 op = OptionParser.new
 op.program_name = File.basename($0)
-op.banner = %(Usage: #{op.program_name} [options] <archive-file-name>\n\nExample: #{op.program_name} "/tmp/ubiquity-backup_20150319-15511-156k4nk.tgz"\n\nOptions:)
+op.banner = <<-BANNER
+Usage: #{op.program_name} [options] <archive-file-name> [system name(s)]
+
+Example: #{op.program_name} "/tmp/ubiquity-backup-20150317-8490-121vm8r.tgz"
+
+Options:
+BANNER
 op.on('--archive-dir-path PATH', 'The path of the directory to extract the archive directory in.', "default: #{archive_dir_base_path}\n\n") { |v| @archive_dir_base_path = v }
 op.on('--[no-]dry-run', 'Will output the commands to be run but will not execute them.', "default: #{dry_run?}\n\n") { |v| @dry_run = v }
 op.on('--[no-]output-command-history', 'Will show the commands that were run. This is redundant if noop is true.') { |v| @output_command_history = v }
 op.on('--[no-]restore-aspera-enterprise', 'Will run through the commands to restore Aspera Enterprise.', "default: #{restore_aspera_enterprise?}\n\n") { |v| @restore_aspera__enterprise = v }
 op.on('--[no-]restore-aspera-orchestrator', 'Will run through the commands to restore Aspera Orchestrator',"default: #{restore_aspera_orchestrator?}\n\n") { |v| @restore_aspera_orchestrator = v }
 op.on('--[no-]restore-cantemo-portal', 'Will run through the commands to restore Cantemo Portal', "default: #{restore_cantemo_portal?}\n\n") { |v| @restore_cantemo_portal = v }
-op.on('--help', 'Display this message.') { puts op; exit }
+op.on('--help', 'Display this message.') { puts op; puts banner_footer; exit }
+def banner_footer
+  <<-BANNER
+
+System Names:
+  all (default)
+  aspera_console
+  aspera_enterprise
+  aspera_faspex
+  aspera_orchestrator
+  aspera_shares
+  cantemo_portal
+
+  * Note: Supplying a system name will override a --no-[system-name] option
+  BANNER
+end
 op.parse!
 
 archive_file_path = ARGV.shift
@@ -361,13 +382,16 @@ def restore_cantemo_portal(args = { })
   data = %({ "type":"fs","settings":{"compress":true,"location":"#{File.join(archive_dir_path, 'cantemo_portal_elasticsearch')}" } })
   if dry_run? || use_curl
     # execute(%(curl -XPOST   "#{es_host}:#{es_port}/_all/_close"))
+    execute(%(curl -XPOST   "#{es_host}:#{es_port}/portal_1/_close"))
     execute(%(curl -XPUT    "#{es_host}:#{es_port}/_snapshot/#{archive_name}" -d '#{data}'))
     execute(%(curl -XPOST   "#{es_host}:#{es_port}/_snapshot/#{archive_name}/snapshot_1/_restore"))
     execute(%(curl -XDELETE "#{es_host}:#{es_port}/_snapshot/#{archive_name}"))
     # execute(%(curl -XPOST   "#{es_host}:#{es_port}/_all/_open"))
+    # execute(%(curl -XPOST   "#{es_host}:#{es_port}/portal_1/_open"))
   else
     http = Net::HTTP.new(es_host, es_port)
     # http.post(   '/_all/_close', '')
+    http.post(   '/portal_1/_close', '')
     http.put(    "/_snapshot/#{archive_name}", data)
     http.post(   "/_snapshot/#{archive_name}/snapshot_1/_restore", '')
     http.delete( "/_snapshot/#{archive_name}")
