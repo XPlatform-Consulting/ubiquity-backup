@@ -10,6 +10,10 @@ require 'shellwords'
 
 ARGV << '--help' if ARGV.empty?
 
+# #################################################################################################################### #
+
+# @!group Default Parameter Values
+
 @archive_archiware = true
 def archive_archiware?; @archive_archiware end
 
@@ -40,21 +44,11 @@ def archive_name; @archive_name end
 @dry_run = true
 def dry_run?; @dry_run end
 
-def banner_footer
-  <<-BANNER
+# @!endgroup
 
-System Names:
-  all (default)
-  aspera_console
-  aspera_enterprise
-  aspera_faspex
-  aspera_orchestrator
-  aspera_shares
-  cantemo_portal
+# #################################################################################################################### #
 
-  * Note: Supplying a system name will override a --no-[system-name] option
-  BANNER
-end
+# @!group Argument Handling
 
 op = OptionParser.new
 op.program_name = File.basename($0)
@@ -88,6 +82,21 @@ op.on('--archive-path PATH', 'The directory to use when building the archive.', 
 op.on('--archive-name NAME', 'Will override the generated archive name with whatever is specified.', "example: #{archive_name}\n\n") { |v| @archive_name = v }
 op.on('--[no-]dry-run', 'Will output the commands to be run but will not execute them.', "default: #{dry_run?}\n\n") { |v| @dry_run = v }
 op.on('--help', 'Display this message.') { puts op; puts banner_footer; exit }
+def banner_footer
+  <<-BANNER
+
+System Names:
+  all (default)
+  aspera_console
+  aspera_enterprise
+  aspera_faspex
+  aspera_orchestrator
+  aspera_shares
+  cantemo_portal
+
+  * Note: Supplying a system name will override a --no-[system-name] option
+  BANNER
+end
 op.parse!
 
 # Look for specific systems being passes as arguments
@@ -136,6 +145,9 @@ unless ARGV.empty?
   # ARGV.empty?
 end
 
+# @!endgroup Argument Handling
+
+# #################################################################################################################### #
 
 class MultiIO
   def initialize(*targets); @targets = targets end
@@ -174,6 +186,9 @@ def echo(message, options = { })
 end
 
 # #################################################################################################################### #
+
+# @!group Archive Methods
+
 def archive_aspera_console(task = { })
   console_backup_dir_path = '/opt/aspera/console/backup/'
 
@@ -240,7 +255,6 @@ def archive_elasticsearch_index(args = { })
 
   # We need elastic search to be able to write to the directory
   execute(%(chown 777 "#{es_archive_dir}"))
-
 
   data = %({ "type":"fs","settings":{"compress":true,"location":"#{archive_dir}" } })
   if dry_run? || use_curl
@@ -349,6 +363,10 @@ def archive_solr_index(args = { })
   # https://gist.github.com/ralph-tice/887414a7f8082a0cb828
 end
 
+# @!endgroup Archive Methods
+
+# #################################################################################################################### #
+
 @arguments = { }
 def arguments; @arguments end
 
@@ -374,13 +392,10 @@ def log_file_path; @log_file_path end
 @preserved_working_dir = Dir.pwd
 def preserved_working_dir; @preserved_working_dir end
 
-FileUtils.mkdir_p(archive_dir_base_path) unless dry_run?
 
-execute("mkdir -p #{archive_dir}")
-execute("cd #{archive_dir}")
+# #################################################################################################################### #
 
-logger.debug { "Archive Dir: #{archive_dir}" }
-logger.add_target(log_file_path) if !dry_run? and logger.respond_to?(:add_target)
+# @!group Archive Classes
 
 class BaseArchive
 
@@ -394,7 +409,6 @@ class BaseArchive
 
 end
 
-# #################################################################################################################### #
 # @existing_constants = Object.constants
 
 class Archiware < BaseArchive
@@ -424,41 +438,8 @@ class AsperaConsoleServerArchive < BaseArchive
 
 end
 
-class AsperaEnterpriseServerArchive < BaseArchive
 # @see http://download.asperasoft.com/download/docs/entsrv/3.5.4/es_admin_linux/pdf2/EnterpriseServer_Admin_3.5.4_Linux.pdf
-
-=begin
-  /opt/aspera/etc/
-  /opt/aspera/etc/aspera.conf
-
-  Redis DB Backup/Restore
-    Instructions for backing up and restoring the database.
-    To back up and restore the Redis database (and your user data up to the point-in-time of the backup operation), follow
-    the instructions below. Note that the backup and restore operations should be used for the following scenarios:
-
-    • If you need to change the Redis database port number (<db_port/> in aspera.conf), you should first back up
-      the Redis database. Once you have changed the port number, you need to restore the database.
-    • Basic backup and restore (after a data-loss event).
-
-    1. Back up the Redis database.
-        Use the following command to back up your Redis database (before changing the port number):
-        $ sudo /opt/aspera/bin/asnodeadmin -b /your/backup/dir/database.backup
-        Important: When backing up the Redis database, all user data up to that point-in-time will be saved to
-        the backup file. Restoring the database (see Step 2, below) does not delete users added after this snapshot
-        was taken. Thus, if you added any users after backing up the database, then they will still exist in the
-        system and will not be affected by the restore operation.
-
-    2. Restore the Redis database.
-        Use the following command to restore your Redis database:
-        $ sudo /opt/aspera/bin/asnodeadmin -r /your/backup/dir/database.backup
-        Recall the "Important Note" in Step 1, which stated that restoring the database does not delete users added after
-        the database snapshot was taken. If you do not want to keep users that have been added since the last backup
-        operation, you can delete them after performing the restore with the asnodeadmin command -du username.
-
-    3. Restart the asperanoded service.
-        Use the following command(s) to restart the asperanoded service (requires a restart rather than a reload):
-        $ sudo /etc/init.d/asperanoded restart
-=end
+class AsperaEnterpriseServerArchive < BaseArchive
 
   TASKS = [
       { :type => :archive_aspera_enterprise },
@@ -481,27 +462,9 @@ class AsperaFaspexArchive < BaseArchive
 
 end
 
-class AsperaSharesArchive < BaseArchive
 # @see http://download.asperasoft.com/download/docs/shares/1.9.1/admin_linux/pdf2/Shares_Admin_1.9.1_Linux.pdf
+class AsperaSharesArchive < BaseArchive
 
-=begin
-
-    1. Run the following script as a root user.
-        The script stops Shares services, backs up all necessary files, and restarts Shares. You cannot use this procedure
-        with earlier versions of Shares.
-        # /opt/aspera/shares/u/setup/bin/backup /your_backup_dir
-        For example:
-        # /opt/aspera/shares/u/setup/bin/backup /tmp
-        Creating backup directory /tmp/20130627025459 ...
-        Checking status of aspera-shares ...
-        Status is running
-        mysqld is alive
-        Backing up the Shares database and config files ...
-        Backing up the SSL certificates ...
-        Done
-    2. Make a note of the ID of the created backup directory for future use. In the above example example:
-        20130627025459
-=end
   TASKS = [
       # { :type => :execute, :name => 'aspera_shares_backup_script', :path => '/opt/aspera/shares/u/setup/bin/backup' }
       { :type => :archive_aspera_shares, :name => 'aspera_shares_backup' }
@@ -523,6 +486,7 @@ class CantemoPortalArchive < BaseArchive
       { :type => :archive_path, :name => 'cantemo_portal_glassfish_solr',     :path => '/opt/glassfish3/glassfish/solrhome' },
       { :type => :archive_path, :name => 'cantemo_portal_media',              :path => '/opt/cantemo/portal/portal_media' },
       { :type => :archive_path, :name => 'cantemo_portal_nginx',              :path => '/etc/nginx/conf.d/portal.conf' },
+      { :type => :archive_path, :name => 'cantemo_portal_plugins',            :path => '/opt/cantemo/portal/plugins' },
       { :type => :archive_path, :name => 'cantemo_portal_rabbitmq',           :path => '/var/lib/rabbitmq' },
       { :type => :archive_path, :name => 'cantemo_portal_rabbitmq_conf',      :path => '/etc/rabbitmq' },
       { :type => :archive_path, :name => 'cantemo_portal_themes',             :path => '/opt/cantemo/portal/portal_themes' },
@@ -551,39 +515,6 @@ class CantemoPortalArchive < BaseArchive
       # /etc/rabbitmq/
   ]
 
-  # def self.tasks
-  #   self.new.tasks
-  # end
-
-  # def initialize(args = { })
-  #   _tasks_by_name = tasks_by_name
-  #
-  #   cantemo_portal_config_path = File.join(_tasks_by_name['cantemo_portal_configs'][:path], 'portal.conf')
-  #   cantemo_portal_config = IniFile.load(cantemo_portal_config_path)
-  #
-  #   cantemo_portal_database_config = cantemo_portal_config['database']
-  #   return tasks if cantemo_portal_database_config.empty?
-  #
-  #   cantemo_portal_database_name = cantemo_portal_database_config['DATABASE_NAME']
-  #   cantemo_portal_database_host = cantemo_portal_database_config['DATABASE_HOST']
-  #   cantemo_portal_database_port = cantemo_portal_database_config['DATABASE_PORT']
-  #   cantemo_portal_database_username = cantemo_portal_database_config['DATABASE_USER']
-  #   cantemo_portal_database_password = cantemo_portal_database_config['DATABASE_PASSWORD']
-  #
-  #   cantemo_portal_archive_database_config = {
-  #     :hostname => cantemo_portal_database_host,
-  #     :port => cantemo_portal_database_port,
-  #     :name => cantemo_portal_database_name,
-  #     :username => cantemo_portal_database_username,
-  #     :password => cantemo_portal_database_password
-  #   }
-  #
-  #   _tasks_by_name['cantemo_portal_db'][:database].merge!(cantemo_portal_archive_database_config)
-  #
-  #   # Get Portal Database Information
-  #   @tasks = _tasks_by_name.map { |_, task| task }
-  # end
-
 end
 
 class AsperaOrchestratorArchive < BaseArchive
@@ -611,6 +542,10 @@ class AsperaOrchestratorArchive < BaseArchive
   ]
 end
 
+# @!endgroup Archive Classes
+
+# #################################################################################################################### #
+
 # backup_tasks = OrchestratorArchive.tasks
 # backup_tasks = CantemoPortalArchive.tasks + AsperaOrchestratorArchive.tasks
 #backup_tasks = (Object.constants - @existing_constants).delete_if { |obj| !Object.const_get(obj).respond_to?(:tasks) }.map { |obj| Object.const_get(obj).tasks }.flatten
@@ -624,6 +559,14 @@ to_archive << AsperaSharesArchive if archive_aspera_shares?
 to_archive << CantemoPortalArchive if archive_cantemo_portal?
 
 begin
+  FileUtils.mkdir_p(archive_dir_base_path) unless dry_run?
+
+  execute("mkdir -p #{archive_dir}")
+  execute("cd #{archive_dir}")
+
+  logger.debug { "Archive Dir: #{archive_dir}" }
+  logger.add_target(log_file_path) if !dry_run? and logger.respond_to?(:add_target)
+
   to_archive.each do |archive|
     echo "# ### #{archive.name} start ###"
     backup_tasks = archive.tasks
