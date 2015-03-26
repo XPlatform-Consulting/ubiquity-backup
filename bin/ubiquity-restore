@@ -24,6 +24,12 @@ def dry_run?; @dry_run end
 @output_command_history = false
 def output_command_history?; @output_command_history end
 
+@restore_archiware = true
+def restore_archiware?; @restore_archiware end
+
+@restore_aspera_cluster_manager = true
+def restore_aspera_cluster_manager?; @restore_aspera_cluster_manager end
+
 @restore_aspera_console = true
 def restore_aspera_console?; @restore_aspera_console end
 
@@ -53,15 +59,25 @@ op.program_name = File.basename($0)
 op.banner = <<-BANNER
 Usage: #{op.program_name} [options] <archive-file-name> [system name(s)]
 
-Example: #{op.program_name} "/tmp/ubiquity-backup-20150317-8490-121vm8r.tgz"
+Examples:
+
+  (Dry-Run)
+  # #{op.program_name} "/tmp/ubiquity-backup-20150317-8490-121vm8r.tgz"
+
+  (Non Dry-Run)
+  # #{op.program_name} "/tmp/ubiquity-backup-20150317-8490-121vm8r.tgz" --no-dry-run
 
 Options:
 BANNER
 op.on('--archive-dir-path PATH', 'The path of the directory to extract the archive directory in.', "default: #{archive_dir_base_path}\n\n") { |v| @archive_dir_base_path = v }
 op.on('--[no-]dry-run', 'Will output the commands to be run but will not execute them.', "default: #{dry_run?}\n\n") { |v| @dry_run = v }
 op.on('--[no-]output-command-history', 'Will show the commands that were run. This is redundant if noop is true.') { |v| @output_command_history = v }
-op.on('--[no-]restore-aspera-enterprise', 'Will run through the commands to restore Aspera Enterprise.', "default: #{restore_aspera_enterprise?}\n\n") { |v| @restore_aspera__enterprise = v }
+op.on('--[no-]restore-archiware', 'Will run through the commands to restore Archiware.', "default: #{restore_archiware?}\n\n") { |v| @restore_archiware = v }
+op.on('--[no-]restore-aspera-console', 'Will run through the commands to restore Aspera Console.', "default: #{restore_aspera_console?}\n\n") { |v| @restore_aspera_console = v }
+op.on('--[no-]restore-aspera-enterprise', 'Will run through the commands to restore Aspera Enterprise.', "default: #{restore_aspera_enterprise?}\n\n") { |v| @restore_aspera_enterprise = v }
+op.on('--[no-]restore-aspera-faspex', 'Will run through the commands to restore Aspera Faspex.', "default: #{restore_aspera_faspex?}\n\n") { |v| @restore_aspera_faspex = v }
 op.on('--[no-]restore-aspera-orchestrator', 'Will run through the commands to restore Aspera Orchestrator',"default: #{restore_aspera_orchestrator?}\n\n") { |v| @restore_aspera_orchestrator = v }
+op.on('--[no-]restore-aspera-shares', 'Will run through the commands to restore Aspera Shares.', "default: #{restore_aspera_shares?}\n\n") { |v| @restore_aspera_shares = v }
 op.on('--[no-]restore-cantemo-portal', 'Will run through the commands to restore Cantemo Portal', "default: #{restore_cantemo_portal?}\n\n") { |v| @restore_cantemo_portal = v }
 op.on('--help', 'Display this message.') { puts op; puts banner_footer; exit }
 def banner_footer
@@ -69,6 +85,8 @@ def banner_footer
 
 System Names:
   all (default)
+  archiware
+  aspera_cluster_manager
   aspera_console
   aspera_enterprise
   aspera_faspex
@@ -86,34 +104,42 @@ abort "Archive File Not Found. '#{archive_file_path}'" unless dry_run? or File.e
 
 # Look for specific systems being passes as arguments
 unless ARGV.empty?
-  @restore_aspera_console      = false
-  @restore_aspera_enterprise   = false
-  @restore_aspera_faspex       = false
-  @restore_aspera_orchestrator = false
-  @restore_aspera_shares       = false
-  @restore_cantemo_portal      = false
+  @restore_archiware              = false
+  @restore_aspera_cluster_manager = false
+  @restore_aspera_console         = false
+  @restore_aspera_enterprise      = false
+  @restore_aspera_faspex          = false
+  @restore_aspera_orchestrator    = false
+  @restore_aspera_shares          = false
+  @restore_cantemo_portal         = false
 
   ARGV.each do |val|
     _val = val.downcase.gsub(/[-_]/, '')
     case _val
       when 'all'
-        @restore_aspera_console      = true
-        @restore_aspera_enterprise   = true
-        @restore_aspera_faspex       = true
-        @restore_aspera_orchestrator = true
-        @restore_aspera_shares       = true
-        @restore_cantemo_portal      = true
-      when 'asperaconsole';      @restore_aspera_console       = true
-      when 'asperaenterprise';   @restore_aspera_enterprise    = true
-      when 'asperafaspex';       @restore_aspera_faspex        = true
-      when 'asperaorchestrator'; @restore_aspera_orchestrator  = true
-      when 'asperashares';       @restore_aspera_shares        = true
-      when 'cantemoportal';      @restore_cantemo_portal       = true
+        @restore_archiware              = true
+        @restore_aspera_cluster_manager = true
+        @restore_aspera_console         = true
+        @restore_aspera_enterprise      = true
+        @restore_aspera_faspex          = true
+        @restore_aspera_orchestrator    = true
+        @restore_aspera_shares          = true
+        @restore_cantemo_portal         = true
+      when 'archiware';            @restore_archiware               = true
+      when 'asperaclustermanager'; @restore_aspera_cluster_manager  = true
+      when 'asperaconsole';        @restore_aspera_console          = true
+      when 'asperaenterprise';     @restore_aspera_enterprise       = true
+      when 'asperafaspex';         @restore_aspera_faspex           = true
+      when 'asperaorchestrator';   @restore_aspera_orchestrator     = true
+      when 'asperashares';         @restore_aspera_shares           = true
+      when 'cantemoportal';        @restore_cantemo_portal          = true
       else
         abort <<-ERRMSG
         Unknown System Name: #{_val}
         Known System Names:
           all
+          archiware
+          aspera_cluster_manager
           aspera_console
           aspera_enterprise
           aspera_faspex
@@ -166,20 +192,19 @@ def tar_extract_to_string
   @tar_extract_to_string ||= (archive_restore_base_dir ? %( -C "#{archive_restore_base_dir}") : '')
 end
 
-
 def untar_archive_file(archive_file_name, options = { })
   command_line = %(sudo tar xzvf "#{archive_dir_path}/#{archive_file_name}"#{tar_extract_to_string})
   execute(command_line)
 end
 
-# archive_file_name = 'ubiquity-backup_20150317-8646-awcuf4.tgz'
+# @archive_file_name = 'ubiquity-backup-20150317-8646-awcuf4.tgz'
 @archive_name = File.basename(archive_file_path, '.*')
 def archive_name; @archive_name end
 
 @archive_dir_path = File.join(archive_dir_base_path, archive_name)
 def archive_dir_path; @archive_dir_path end
 
-# archive_file_name = "#{archive_name}.tgz"
+# @archive_file_name = "#{archive_name}.tgz"
 @archive_file_name = File.basename(archive_file_path)
 def archive_file_name; @archive_file_name end
 
@@ -187,6 +212,18 @@ def archive_file_name; @archive_file_name end
 # #################################################################################################################### #
 
 # @!group Restore Methods
+
+def restore_archiware
+  echo '# ### ARCHIWARE RESTORATION - BEGIN ###'
+  untar_archive_file 'archiware'
+  echo '# ### ARCHIWARE RESTORATION - END ###'
+end
+
+def restore_aspera_cluster_manager
+  echo '# ### ASPERA CLUSTER MANAGER RESTORATION - BEGIN ###'
+  untar_archive_file 'aspera_cluster_manager.tgz'
+  echo '# ### ASPERA CLUSTER MANAGER RESTORATION - END ###'
+end
 
 # @see http://download.asperasoft.com/download/docs/console/2.5.1/admin_linux/webhelp/index.html#dita/restore_console_database.html
 def restore_aspera_console
@@ -413,9 +450,11 @@ end
 command_line = %(tar xzvf "#{archive_file_path}" -C "#{archive_dir_base_path}")
 execute(command_line)
 
+restore_archiware if restore_archiware?
 restore_aspera_console if restore_aspera_console?
 restore_aspera_enterprise if restore_aspera_enterprise?
 restore_aspera_faspex if restore_aspera_faspex?
+restore_aspera_cluster_manager if restore_aspera_cluster_manager?
 restore_aspera_orchestrator if restore_aspera_orchestrator?
 restore_aspera_shares if restore_aspera_shares?
 restore_cantemo_portal if restore_cantemo_portal?
