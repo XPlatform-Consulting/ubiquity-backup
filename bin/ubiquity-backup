@@ -87,6 +87,7 @@ def banner_footer
 
 System Names:
   all (default)
+  archiware
   aspera_console
   aspera_enterprise
   aspera_faspex
@@ -94,7 +95,7 @@ System Names:
   aspera_shares
   cantemo_portal
 
-  * Note: Supplying a system name will override a --no-[system-name] option
+  * Note: Supplying a system name will override any --no-[system-name] options
   BANNER
 end
 op.parse!
@@ -191,15 +192,28 @@ end
 
 def archive_archiware(task = { })
   archiware_dir_path = '/usr/local/aw'
-
+  # archiware_bin_dir_path = File.join(archiware_dir_path, 'bin')
+  nsdchat_exec_file_path = File.join(archiware_dir_path, 'bin/nsdchat')
+  version_file_path = File.join(archive_dir, 'archiware_version')
   unless dry_run?
     return unless File.exist?(archiware_dir_path)
 
-    return unless File.executable?('nsdchat')
+    return unless File.executable?(nsdchat_exec_file_path)
   end
 
-  execute(%(nsdchat -c srvinfo lexxvers > "#{File.join(archive_dir, 'archiware_version')}"))
+  execute(%("#{nsdchat_exec_file_path}" -c srvinfo lexxvers > "#{version_file_path}"))
 
+  # nsdchat -C Job running
+
+  tar_command_line = build_tar_command_line(:name => 'archiware', :path => archiware_dir_path)
+  command_line = <<-CMDLINE
+aws_running=$(( [ -n $(ps ax | grep -e  "[0-9] #{File.join(archiware_dir_path, 'bin/nsd')}") ] && echo 1 ) || echo 0)
+aws_running_jobs=$( ([ $aws_running -eq 1 ] && echo $(aws_jobs_running=0;for job in $("#{nsdchat_exec_file_path}" -c Job names); do [ job == 'running' ] && ((aws_jobs_running++)); done; echo $aws_jobs_running)) ) || echo 0
+[ $aws_running -eq 1 ] && [ $aws_running_jobs -eq 0 ] && echo "Stopping Server" && sudo "#{File.join(archiware_dir_path, 'stop-server')}"
+[ $aws_running_jobs -eq 0 ] && echo "Creating Archive" && #{tar_command_line}
+[ $aws_running -eq 1 ] && sudo "#{File.join(archiware_dir_path, 'start-server')}"
+  CMDLINE
+  execute(command_line)
 end
 
 def archive_aspera_console(task = { })
@@ -208,8 +222,8 @@ def archive_aspera_console(task = { })
   command_line = %(asctl console:backup_database)
   execute(command_line)
 
-  tar_command_line = build_tar_command_line(:name => 'aspera_console_database', :path => '$NEW_ARCHIVE_DIR')
-  command_line = %(export NEW_ARCHIVE_DIR=$(find "#{console_backup_dir_path}" -mindepth 1 -maxdepth 1 -type d | tail -1);#{tar_command_line};unset NEW_ARCHIVE_DIR)
+  tar_command_line = build_tar_command_line(:name => 'aspera_console_database', :path => '${new_archive_dir}')
+  command_line = %(new_archive_dir=$(find "#{console_backup_dir_path}" -mindepth 1 -maxdepth 1 -type d | tail -1);#{tar_command_line})
   execute(command_line)
 
 end
@@ -233,8 +247,8 @@ def archive_aspera_faspex(task = { })
   command_line = %(asctl faspex:backup_database)
   execute(command_line)
 
-  tar_command_line = build_tar_command_line(:name => 'aspera_faspex_database', :path => '$NEW_ARCHIVE_DIR')
-  command_line = %(export NEW_ARCHIVE_DIR=$(find "#{console_backup_dir_path}" -mindepth 1 -maxdepth 1 -type d | tail -1);#{tar_command_line};unset NEW_ARCHIVE_DIR)
+  tar_command_line = build_tar_command_line(:name => 'aspera_faspex_database', :path => '${new_archive_dir}')
+  command_line = %(new_archive_dir=$(find "#{console_backup_dir_path}" -mindepth 1 -maxdepth 1 -type d | tail -1);#{tar_command_line})
   execute(command_line)
 end
 
@@ -405,7 +419,6 @@ def log_file_path; @log_file_path end
 @preserved_working_dir = Dir.pwd
 def preserved_working_dir; @preserved_working_dir end
 
-
 # #################################################################################################################### #
 
 # @!group Archive Classes
@@ -428,7 +441,15 @@ class ArchiwareArchive < BaseArchive
 
   TASKS = [
     { :type => :archive_archiware },
-    { :type => :archive_path, :name => 'archiware', :path => '/usr/local/aw' }
+    # { :type => :archive_path, :name => 'archiware', :path => '/usr/local/aw' }
+  ]
+
+end
+
+class AsperaClusterManagerArchive < BaseArchive
+
+  TASKS = [
+    { :type => :archive_path, :name => 'aspera_cluster_manager', :path => '/opt/aspera/acm' }
   ]
 
 end
@@ -480,8 +501,8 @@ end
 class AsperaSharesArchive < BaseArchive
 
   TASKS = [
-      # { :type => :execute, :name => 'aspera_shares_backup_script', :path => '/opt/aspera/shares/u/setup/bin/backup' }
-      { :type => :archive_aspera_shares, :name => 'aspera_shares_backup' }
+    # { :type => :execute, :name => 'aspera_shares_backup_script', :path => '/opt/aspera/shares/u/setup/bin/backup' }
+    { :type => :archive_aspera_shares, :name => 'aspera_shares_backup' }
   ]
 
 end
@@ -492,41 +513,41 @@ class CantemoPortalArchive < BaseArchive
 
   TASKS = [
 
-      # Paths
-      { :type => :archive_path, :name => 'cantemo_portal_configs',            :path => '/opt/cantemo/portal/configs' },
-      { :type => :archive_path, :name => 'cantemo_portal_elasticsearch_conf', :path => '/etc/elasticsearch' },
-      { :type => :archive_path, :name => 'cantemo_portal_etc',                :path => '/etc/cantemo/portal/' },
-      { :type => :archive_path, :name => 'cantemo_portal_glassfish_domain',   :path => '/opt/glassfish3/glassfish/domains/domain1/config/domain.xml' },
-      { :type => :archive_path, :name => 'cantemo_portal_glassfish_solr',     :path => '/opt/glassfish3/glassfish/solrhome' },
-      { :type => :archive_path, :name => 'cantemo_portal_media',              :path => '/opt/cantemo/portal/portal_media' },
-      { :type => :archive_path, :name => 'cantemo_portal_nginx',              :path => '/etc/nginx/conf.d/portal.conf' },
-      { :type => :archive_path, :name => 'cantemo_portal_plugins',            :path => '/opt/cantemo/portal/plugins' },
-      { :type => :archive_path, :name => 'cantemo_portal_rabbitmq',           :path => '/var/lib/rabbitmq' },
-      { :type => :archive_path, :name => 'cantemo_portal_rabbitmq_conf',      :path => '/etc/rabbitmq' },
-      { :type => :archive_path, :name => 'cantemo_portal_themes',             :path => '/opt/cantemo/portal/portal_themes' },
-      { :type => :archive_path, :name => 'cantemo_portal_thumbnails',         :path => '/srv/thumbnail' },
-      { :type => :archive_path, :name => 'cantemo_portal_usermedia',          :path => '/opt/cantemo/portal/usermedia' },
+    # Paths
+    { :type => :archive_path, :name => 'cantemo_portal_configs',            :path => '/opt/cantemo/portal/configs' },
+    { :type => :archive_path, :name => 'cantemo_portal_elasticsearch_conf', :path => '/etc/elasticsearch' },
+    { :type => :archive_path, :name => 'cantemo_portal_etc',                :path => '/etc/cantemo/portal/' },
+    { :type => :archive_path, :name => 'cantemo_portal_glassfish_domain',   :path => '/opt/glassfish3/glassfish/domains/domain1/config/domain.xml' },
+    { :type => :archive_path, :name => 'cantemo_portal_glassfish_solr',     :path => '/opt/glassfish3/glassfish/solrhome' },
+    { :type => :archive_path, :name => 'cantemo_portal_media',              :path => '/opt/cantemo/portal/portal_media' },
+    { :type => :archive_path, :name => 'cantemo_portal_nginx',              :path => '/etc/nginx/conf.d/portal.conf' },
+    { :type => :archive_path, :name => 'cantemo_portal_plugins',            :path => '/opt/cantemo/portal/plugins' },
+    { :type => :archive_path, :name => 'cantemo_portal_rabbitmq',           :path => '/var/lib/rabbitmq' },
+    { :type => :archive_path, :name => 'cantemo_portal_rabbitmq_conf',      :path => '/etc/rabbitmq' },
+    { :type => :archive_path, :name => 'cantemo_portal_themes',             :path => '/opt/cantemo/portal/portal_themes' },
+    { :type => :archive_path, :name => 'cantemo_portal_thumbnails',         :path => '/srv/thumbnail' },
+    { :type => :archive_path, :name => 'cantemo_portal_usermedia',          :path => '/opt/cantemo/portal/usermedia' },
 
-      # Postgres Databases
-      { :type => :archive_postgresql_database, :name => 'cantemo_portal_db', :database => { :name => 'portal', :username => 'postgres', :password => 'postgres' } },
-      { :type => :archive_postgresql_database, :name => 'cantemo_vidispine_db', :database => { :name => 'vidispine', :username => 'postgres', :password => 'postgres' } },
+    # Postgres Databases
+    { :type => :archive_postgresql_database, :name => 'cantemo_portal_db', :database => { :name => 'portal', :username => 'postgres', :password => 'postgres' } },
+    { :type => :archive_postgresql_database, :name => 'cantemo_vidispine_db', :database => { :name => 'vidispine', :username => 'postgres', :password => 'postgres' } },
 
-      # Nginx
-      # /etc/nginx/conf.d/portal.conf
+    # Nginx
+    # /etc/nginx/conf.d/portal.conf
 
-      # Glassfish
-      # /opt/glassfish3/glassfish/domains/domain1/config/domain.xml
+    # Glassfish
+    # /opt/glassfish3/glassfish/domains/domain1/config/domain.xml
 
-      # Solr Home in Glassfish
-      # /opt/glassfish3/glassfish/solrhome
+    # Solr Home in Glassfish
+    # /opt/glassfish3/glassfish/solrhome
 
-      # Elasticsearch
-      # /etc/elasticsearch/
-      { :type => :archive_elasticsearch_index, :name => 'cantemo_portal_elasticsearch' }
+    # Elasticsearch
+    # /etc/elasticsearch/
+    { :type => :archive_elasticsearch_index, :name => 'cantemo_portal_elasticsearch' }
 
-      # RabbitMQ
-      # /var/lib/rabbitmq
-      # /etc/rabbitmq/
+    # RabbitMQ
+    # /var/lib/rabbitmq
+    # /etc/rabbitmq/
   ]
 
 end
@@ -590,7 +611,7 @@ begin
     backup_tasks.each do |task|
       logger.debug { "Processing Task: #{task.inspect}" }
       case task[:type]
-        # when :archive_aspera_connect; archive_aspera_connect(task)
+        when :archive_archiware; archive_archiware(task)
         when :archive_aspera_console; archive_aspera_console(task)
         when :archive_aspera_faspex; archive_aspera_faspex(task)
         when :archive_aspera_enterprise; archive_aspera_enterprise(task)
