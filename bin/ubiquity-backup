@@ -596,6 +596,7 @@ end
 
 to_archive = [ ]
 to_archive << ArchiwareArchive if archive_archiware?
+to_archive << AsperaClusterManagerArchive if archive_aspera_cluster_manager?
 to_archive << AsperaConsoleServerArchive if archive_aspera_console?
 to_archive << AsperaEnterpriseServerArchive if archive_aspera_enterprise?
 to_archive << AsperaFaspexArchive if archive_aspera_faspex?
