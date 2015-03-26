@@ -17,6 +17,9 @@ ARGV << '--help' if ARGV.empty?
 @archive_archiware = true
 def archive_archiware?; @archive_archiware end
 
+@archive_aspera_cluster_manager = true
+def archive_aspera_cluster_manager?; @archive_aspera_cluster_manager end
+
 @archive_aspera_console = true
 def archive_aspera_console?; @archive_aspera_console end
 
@@ -72,6 +75,7 @@ Examples:
 Options:
 BANNER
 op.on('--[no-]archive-archiware', 'If set to false then an attempt to backup this system will not be made.', "default: #{archive_archiware?}\n\n" ) { |v| @archive_archiware = v }
+op.on('--[no-]archive-aspera-cluster-manager', 'If set to false then an attempt to backup this system will not be made.', "default: #{archive_aspera_cluster_manager?}\n\n" ) { |v| @archive_aspera_cluster_manager = v }
 op.on('--[no-]archive-aspera-console', 'If set to false then an attempt to backup this system will not be made.', "default: #{archive_aspera_console?}\n\n" ) { |v| @archive_aspera_console = v }
 op.on('--[no-]archive-aspera-enterprise', 'If set to false then an attempt to backup this system will not be made.', "default: #{archive_aspera_enterprise?}\n\n" ) { |v| @archive_aspera_enterprise = v }
 op.on('--[no-]archive-aspera-faspex', 'If set to false then an attempt to backup this system will not be made.', "default: #{archive_aspera_faspex?}\n\n" ) { |v| @archive_aspera_faspex = v }
@@ -102,37 +106,42 @@ op.parse!
 
 # Look for specific systems being passes as arguments
 unless ARGV.empty?
-  @archive_archiware           = false
-  @archive_aspera_console      = false
-  @archive_aspera_enterprise   = false
-  @archive_aspera_faspex       = false
-  @archive_aspera_orchestrator = false
-  @archive_aspera_shares       = false
-  @archive_cantemo_portal      = false
+  @archive_archiware              = false
+  @archive_aspera_cluster_manager = false
+  @archive_aspera_console         = false
+  @archive_aspera_enterprise      = false
+  @archive_aspera_faspex          = false
+  @archive_aspera_orchestrator    = false
+  @archive_aspera_shares          = false
+  @archive_cantemo_portal         = false
 
   ARGV.each do |val|
     _val = val.downcase.gsub(/[-_]/, '')
     case _val
       when 'all'
-        @archive_archiware           = true
-        @archive_aspera_console      = true
-        @archive_aspera_enterprise   = true
-        @archive_aspera_faspex       = true
-        @archive_aspera_orchestrator = true
-        @archive_aspera_shares       = true
-        @archive_cantemo_portal      = true
-      when 'archiware';          @archive_archiware            = true
-      when 'asperaconsole';      @archive_aspera_console       = true
-      when 'asperaenterprise';   @archive_aspera_enterprise    = true
-      when 'asperafaspex';       @archive_aspera_faspex        = true
-      when 'asperaorchestrator'; @archive_aspera_orchestrator  = true
-      when 'asperashares';       @archive_aspera_shares        = true
-      when 'cantemoportal';      @archive_cantemo_portal       = true
+        @archive_archiware              = true
+        @archive_aspera_cluster_manager = true
+        @archive_aspera_console         = true
+        @archive_aspera_enterprise      = true
+        @archive_aspera_faspex          = true
+        @archive_aspera_orchestrator    = true
+        @archive_aspera_shares          = true
+        @archive_cantemo_portal         = true
+      when 'archiware';            @archive_archiware               = true
+      when 'asperaclustermanager'; @archive_aspera_cluster_manager  = true
+      when 'asperaconsole';        @archive_aspera_console          = true
+      when 'asperaenterprise';     @archive_aspera_enterprise       = true
+      when 'asperafaspex';         @archive_aspera_faspex           = true
+      when 'asperaorchestrator';   @archive_aspera_orchestrator     = true
+      when 'asperashares';         @archive_aspera_shares           = true
+      when 'cantemoportal';        @archive_cantemo_portal          = true
       else
         abort <<-ERRMSG
         Unknown System Name: #{_val}
         Known System Names:
           all
+          archiware
+          aspera_cluster_manager
           aspera_console
           aspera_enterprise
           aspera_faspex
