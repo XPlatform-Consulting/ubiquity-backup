@@ -5,6 +5,7 @@ $:.unshift(lib_path) unless $:.include?(lib_path) or !File.exists?(lib_path)
 require 'rubygems'
 require 'fileutils'
 require 'logger'
+require 'net/http'
 require 'optparse'
 require 'shellwords'
 
@@ -175,14 +176,14 @@ class Logger
 end
 
 def execute(command_line, options = { })
-  noop = options.fetch(:noop, default_noop)
+  noop = options.fetch(:noop, dry_run?)
 
   command_line = command_line.shelljoin if command_line.is_a?(Array)
 
   (@command_history ||= [ ]) << command_line
 
   unless noop
-    logger.info { "Executing Command Line: #{command_line}" }
+    logger.info { "Executing: #{command_line}" }
     `#{command_line}`
   end
 end
@@ -199,7 +200,9 @@ end
 
 # @!group Archive Methods
 
+# @see http://provideotech.org/automatically-backing-up-p5-indexes/
 def archive_archiware(task = { })
+
   archiware_dir_path = '/usr/local/aw'
   # archiware_bin_dir_path = File.join(archiware_dir_path, 'bin')
   nsdchat_exec_file_path = File.join(archiware_dir_path, 'bin/nsdchat')
@@ -403,11 +406,8 @@ end
 
 # #################################################################################################################### #
 
-@arguments = { }
+@arguments ||= { }
 def arguments; @arguments end
-
-@default_noop = dry_run?
-def default_noop; @default_noop end
 
 @output_command_history = true
 def output_command_history?; @output_command_history end
@@ -463,8 +463,9 @@ class AsperaClusterManagerArchive < BaseArchive
 
 end
 
+# @see http://download.asperasoft.com/download/docs/console/2.5.1/admin_linux/webhelp/index.html#dita/backing_up_console_database.html
 class AsperaConsoleServerArchive < BaseArchive
-  # @see http://download.asperasoft.com/download/docs/console/2.5.1/admin_linux/webhelp/index.html#dita/backing_up_console_database.html
+
 
   TASKS = [
     { :type => :archive_aspera_console },
@@ -492,8 +493,9 @@ class AsperaEnterpriseServerArchive < BaseArchive
 
 end
 
+# @see http://download.asperasoft.com/download/docs/faspex/3.9.1/admin_linux/webhelp/index.html#dita/backup.html
 class AsperaFaspexArchive < BaseArchive
-  # @see http://download.asperasoft.com/download/docs/faspex/3.9.1/admin_linux/webhelp/index.html#dita/backup.html
+
 
   TASKS = [
 
@@ -506,19 +508,32 @@ class AsperaFaspexArchive < BaseArchive
 
 end
 
+class AsperaOrchestratorArchive < BaseArchive
+
+  TASKS = [
+
+    { :type => :archive_aspera_orchestrator },
+
+    { :type => :archive_path, :name => 'aspera_orchestrator_apache_config', :path => '/opt/aspera/common/apache/conf' },
+    { :type => :archive_path, :name => 'aspera_orchestrator_mysql_config', :path => '/opt/aspera/common/mysql/my.ini' },
+
+    # Portlets
+    { :type => :archive_path, :name => 'aspera_orchestrator_aspera_portlets', :path => '/opt/aspera/orchestrator/portlets' },
+    { :type => :archive_path, :name => 'aspera_orchestrator_aspera_portlets_in_var_config', :path => '/opt/aspera/var/config/orchestrator/portlets' },
+
+  ]
+end
+
 # @see http://download.asperasoft.com/download/docs/shares/1.9.1/admin_linux/pdf2/Shares_Admin_1.9.1_Linux.pdf
 class AsperaSharesArchive < BaseArchive
 
   TASKS = [
-    # { :type => :execute, :name => 'aspera_shares_backup_script', :path => '/opt/aspera/shares/u/setup/bin/backup' }
     { :type => :archive_aspera_shares, :name => 'aspera_shares_backup' }
   ]
 
 end
 
 class CantemoPortalArchive < BaseArchive
-
-  # require 'inifile'
 
   TASKS = [
 
@@ -541,49 +556,11 @@ class CantemoPortalArchive < BaseArchive
     { :type => :archive_postgresql_database, :name => 'cantemo_portal_db', :database => { :name => 'portal', :username => 'postgres', :password => 'postgres' } },
     { :type => :archive_postgresql_database, :name => 'cantemo_vidispine_db', :database => { :name => 'vidispine', :username => 'postgres', :password => 'postgres' } },
 
-    # Nginx
-    # /etc/nginx/conf.d/portal.conf
-
-    # Glassfish
-    # /opt/glassfish3/glassfish/domains/domain1/config/domain.xml
-
-    # Solr Home in Glassfish
-    # /opt/glassfish3/glassfish/solrhome
-
-    # Elasticsearch
-    # /etc/elasticsearch/
+    # Elasticsearch Indexes
     { :type => :archive_elasticsearch_index, :name => 'cantemo_portal_elasticsearch' }
 
-    # RabbitMQ
-    # /var/lib/rabbitmq
-    # /etc/rabbitmq/
   ]
 
-end
-
-class AsperaOrchestratorArchive < BaseArchive
-
-  TASKS = [
-
-    { :type => :archive_aspera_orchestrator },
-
-    { :type => :archive_path, :name => 'aspera_orchestrator_apache_config', :path => '/opt/aspera/common/apache/conf' },
-    { :type => :archive_path, :name => 'aspera_orchestrator_mysql_config', :path => '/opt/aspera/common/mysql/my.ini' },
-    # MySQL Configuration
-
-
-    # { :type => :archive_path, :name => 'orchestrator_config', :path => '/opt/aspera/orchestrator/var/config' },
-    #
-    # { :type => :archive_mysql_database, :name => 'orchestrator_db', :database => { :name => 'orchestrator', :port => '4406', :username => 'mysql', :password => 'aspera' } }
-
-    # Portlets
-    { :type => :archive_path, :name => 'aspera_orchestrator_aspera_portlets', :path => '/opt/aspera/orchestrator/portlets' },
-    { :type => :archive_path, :name => 'aspera_orchestrator_aspera_portlets_in_var_config', :path => '/opt/aspera/var/config/orchestrator/portlets' },
-
-    # /opt/aspera/orchestrator/portlets
-    # /opt/aspera/var/config/orchestrator/portlets
-
-  ]
 end
 
 # @!endgroup Archive Classes
