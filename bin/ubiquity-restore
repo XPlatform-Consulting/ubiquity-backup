@@ -392,13 +392,13 @@ def restore_cantemo_portal(args = { })
 
   execute %(export UB_CP_RESTORE_DB=#{dry_run? ? '0' : '1'})
 
-  execute %(export UB_CP_RESTORE_DB_PORTAL=$(([ -c "#{portal_db_sql_file_path}" ] && echo 1) || echo 0))
+  execute %(export UB_CP_RESTORE_DB_PORTAL=$(([ -r "#{portal_db_sql_file_path}" ] && echo 1) || echo 0))
 
-  execute %(export UB_CP_RESTORE_DB_VIDISPINE=$(([ -c "#{portal_db_sql_file_path}" ] && echo 1) || echo 0))
+  execute %(export UB_CP_RESTORE_DB_VIDISPINE=$(([ -r "#{vidispine_db_sql_file_path}" ] && echo 1) || echo 0))
 
-  execute 'export UB_CP_RESTORE_DB_FINAL=$(([ $UB_CP_RESTORE_DB -eq 1] && [ $UB_CP_RESTORE_DB_PORTAL -eq 1 ] && [ $UB_CP_RESTORE_DB_VIDISPINE -eq 1 ] && echo 1) || echo 0)'
+  execute 'export UB_CP_RESTORE_DB_FINAL=$(([ $UB_CP_RESTORE_DB -eq 1 ] && [ $UB_CP_RESTORE_DB_PORTAL -eq 1 ] && [ $UB_CP_RESTORE_DB_VIDISPINE -eq 1 ] && echo 1) || echo 0)'
 
-  execute %([ $UB_CP_RESTORE_DB_FINAL -eq 1 ] && sudo -u postgres pg_dump_all > "#{File.join(archive_dir_path, "pg_dump_all_#{Time.now.to_i}.sql")}")
+  execute %([ $UB_CP_RESTORE_DB_FINAL -eq 1 ] && sudo -u postgres "/usr/bin/pg_dumpall" > "#{File.join(archive_dir_path, "pg_dumpall_#{Time.now.to_i}.sql")}")
 
   # command_line = %(export PGPASSWORD=postgres;"/usr/bin/psql" -h localhost -U postgres -c "DROP DATABASE portal;";unset PGPASSWORD)
   execute '[ $UB_CP_RESTORE_DB_FINAL -eq 1 ] && sudo -u postgres dropdb portal'
