@@ -100,7 +100,8 @@ end
 op.parse!
 
 archive_file_path = ARGV.shift
-abort "Archive File Not Found. '#{archive_file_path}'" unless dry_run? or File.exist?(archive_file_path)
+abort 'Archive File Must be Specified.' unless archive_file_path
+abort "Archive File Not Found. '#{archive_file_path}'" unless (dry_run? || File.exist?(archive_file_path))
 
 # Look for specific systems being passes as arguments
 unless ARGV.empty?
@@ -241,17 +242,13 @@ def restore_aspera_console
   untar_archive_file 'aspera_console_dir.tgz'
   untar_archive_file 'aspera_console_database.tgz'
 
-  command_line = %(sudo asctl console:stop)
-  execute(command_line)
+  execute 'sudo asctl console:stop'
 
   _archive_restore_base_dir = archive_restore_base_dir || '/'
   _archive_restore_base_dir << '/' unless archive_restore_base_dir.end_with?('/')
-  command_line = %(export NEW_ARCHIVE_DIR=$(tar ztf "#{archive_dir_path}/aspera_console_database.tgz" | tail -1 | xargs dirname);yes "y" | asctl -v console:restore_database "#{_archive_restore_base_dir}$NEW_ARCHIVE_DIR";unset NEW_ARCHIVE_DIR)
+  execute %(export NEW_ARCHIVE_DIR=$(tar ztf "#{archive_dir_path}/aspera_console_database.tgz" | tail -1 | xargs dirname);yes "y" | asctl -v console:restore_database "#{_archive_restore_base_dir}$NEW_ARCHIVE_DIR";unset NEW_ARCHIVE_DIR)
 
-  execute(command_line)
-
-  command_line = %(sudo asctl console:start)
-  execute(command_line)
+  execute 'sudo asctl console:start'
 
   echo '# ### ASPERA CONSOLE RESTORATION - END ###'
 end
@@ -272,11 +269,9 @@ def restore_aspera_enterprise
   untar_archive_file('aspera_enterprise_config.tgz')
   untar_archive_file('aspera_enterprise_var.tgz')
 
-  command_line = %(sudo "#{asnodeadmin_path}" -r "#{archive_dir_path}/aspera_enterprise_database.snapshot")
-  execute(command_line)
+  execute %(sudo "#{asnodeadmin_path}" -r "#{archive_dir_path}/aspera_enterprise_database.snapshot")
 
-  command_line = %(sudo /etc/init.d/asperanoded restart)
-  execute(command_line)
+  execute 'sudo /etc/init.d/asperanoded restart'
 
   echo '# ### ASPERA ENTERPRISE RESTORATION - END ###'
 end
@@ -299,8 +294,7 @@ def restore_aspera_faspex
 
   _archive_restore_base_dir = archive_restore_base_dir || '/'
   _archive_restore_base_dir << '/' unless archive_restore_base_dir.end_with?('/')
-  command_line = %(export NEW_ARCHIVE_DIR=$(tar ztf "#{archive_dir_path}/aspera_faspex_database.tgz" | tail -1 | xargs dirname);yes "y" | asctl faspex:restore_database "#{_archive_restore_base_dir}$NEW_ARCHIVE_DIR";unset NEW_ARCHIVE_DIR)
-  execute(command_line)
+  execute %(export NEW_ARCHIVE_DIR=$(tar ztf "#{archive_dir_path}/aspera_faspex_database.tgz" | tail -1 | xargs dirname);yes "y" | asctl faspex:restore_database "#{_archive_restore_base_dir}$NEW_ARCHIVE_DIR";unset NEW_ARCHIVE_DIR)
 
   echo '# ### ASPERA FASPEX RESTORATION - END ###'
 end
@@ -356,12 +350,14 @@ end
 
 # @see http://download.asperasoft.com/download/docs/shares/1.9.1/admin_linux/webhelp/index.html#dita/restore.html
 def restore_aspera_shares
+  echo '# ### ASPERA SHARES RESTORATION - BEGIN ###'
 
   shares_restore_executable_path = '/opt/aspera/shares/u/setup/bin/restore'
   backup_dir = File.join(archive_dir_path, 'aspera_shares_archive')
 
   execute(%(export UB_ASPERA_SHARES_BACKUP_DIR=$(find "#{backup_dir}" -mindepth 1 -maxdepth 1 -type d);"#{shares_restore_executable_path}" "$UB_ASPERA_SHARES_BACKUP_DIR";unset UB_ASPERA_SHARES_BACKUP_DIR))
 
+  echo '# ### ASPERA SHARES RESTORATION - END ###'
 end
 
 def restore_cantemo_portal(args = { })
@@ -389,28 +385,37 @@ def restore_cantemo_portal(args = { })
   untar_archive_file('cantemo_portal_usermedia.tgz')
 
 
+  portal_db_sql_file_path = File.join(archive_dir_path, 'cantemo_portal_db.sql')
+  vidispine_db_sql_file_path = File.join(archive_dir_path, 'cantemo_vidispine_db.sql')
+
+  echo 'The following line needs to be set to 1 in order for the Cantemo Portal databases to be restored.'
+
+  execute %(export UB_CP_RESTORE_DB=#{dry_run? ? '0' : '1'})
+
+  execute %(export UB_CP_RESTORE_DB_PORTAL=$(([ -c "#{portal_db_sql_file_path}" ] && echo 1) || echo 0))
+
+  execute %(export UB_CP_RESTORE_DB_VIDISPINE=$(([ -c "#{portal_db_sql_file_path}" ] && echo 1) || echo 0))
+
+  execute 'export UB_CP_RESTORE_DB_FINAL=$(([ $UB_CP_RESTORE_DB -eq 1] && [ $UB_CP_RESTORE_DB_PORTAL -eq 1 ] && [ $UB_CP_RESTORE_DB_VIDISPINE -eq 1 ] && echo 1) || echo 0)'
+
+  execute %([ $UB_CP_RESTORE_DB_FINAL -eq 1 ] && sudo -u postgres pg_dump_all > "#{File.join(archive_dir_path, "pg_dump_all_#{Time.now.to_i}.sql")}")
+
   # command_line = %(export PGPASSWORD=postgres;"/usr/bin/psql" -h localhost -U postgres -c "DROP DATABASE portal;";unset PGPASSWORD)
-  command_line = %(sudo -u postgres dropdb portal)
-  execute(command_line)
+  execute '[ $UB_CP_RESTORE_DB_FINAL -eq 1 ] && sudo -u postgres dropdb portal'
 
-  command_line = %(sudo -u postgres createdb portal)
-  execute(command_line)
+  execute '[ $UB_CP_RESTORE_DB_FINAL -eq 1 ] && sudo -u postgres createdb portal'
 
-  command_line = %(export PGPASSWORD=postgres;"/usr/bin/psql" -h localhost -U postgres portal -f "#{archive_dir_path}/cantemo_portal_db.sql";unset PGPASSWORD)
-  execute(command_line)
+  execute %([ $UB_CP_RESTORE_DB_FINAL -eq 1 ] && export PGPASSWORD=postgres;"/usr/bin/psql" -h localhost -U postgres portal -f "#{portal_db_sql_file_path}";unset PGPASSWORD)
 
   # command_line = %(export PGPASSWORD=postgres;"/usr/bin/psql" -h localhost -U postgres -c "DROP DATABASE vidispine;";unset PGPASSWORD)
-  command_line = %(sudo -u postgres dropdb vidispine)
-  execute(command_line)
+  execute '[ $UB_CP_RESTORE_DB_FINAL -eq 1 ] && sudo -u postgres dropdb vidispine'
 
-  command_line = %(sudo -u postgres createdb vidispine)
-  execute(command_line)
+  execute '[ $UB_CP_RESTORE_DB_FINAL -eq 1 ] && sudo -u postgres createdb vidispine'
 
-  command_line = %(export PGPASSWORD=postgres;"/usr/bin/psql" -h localhost -U postgres vidispine -f "#{archive_dir_path}/cantemo_vidispine_db.sql";unset PGPASSWORD)
-  execute(command_line)
+  execute %([ $UB_CP_RESTORE_DB_FINAL -eq 1 ] && export PGPASSWORD=postgres;"/usr/bin/psql" -h localhost -U postgres vidispine -f "#{vidispine_db_sql_file_path}";unset PGPASSWORD)
 
-  command_line = %(/etc/init.d/middleware start;supervisorctl start all)
-  execute(command_line)
+
+  execute '/etc/init.d/middleware start;supervisorctl start all'
 
   es_host = args[:elasticsearch_host] || 'localhost'
   es_port = args[:elasticsearch_port] || 9200
