@@ -405,14 +405,14 @@ def restore_cantemo_portal(args = { })
 
   execute '[ $UB_CP_RESTORE_DB_FINAL -eq 1 ] && sudo -u postgres createdb portal'
 
-  execute %([ $UB_CP_RESTORE_DB_FINAL -eq 1 ] && export PGPASSWORD=postgres;"/usr/bin/psql" -h localhost -U postgres portal -f "#{portal_db_sql_file_path}";unset PGPASSWORD)
+  execute %([ $UB_CP_RESTORE_DB_FINAL -eq 1 ] && echo $(export PGPASSWORD=postgres;"/usr/bin/psql" -h localhost -U postgres portal -f "#{portal_db_sql_file_path}";unset PGPASSWORD))
 
   # command_line = %(export PGPASSWORD=postgres;"/usr/bin/psql" -h localhost -U postgres -c "DROP DATABASE vidispine;";unset PGPASSWORD)
   execute '[ $UB_CP_RESTORE_DB_FINAL -eq 1 ] && sudo -u postgres dropdb vidispine'
 
   execute '[ $UB_CP_RESTORE_DB_FINAL -eq 1 ] && sudo -u postgres createdb vidispine'
 
-  execute %([ $UB_CP_RESTORE_DB_FINAL -eq 1 ] && export PGPASSWORD=postgres;"/usr/bin/psql" -h localhost -U postgres vidispine -f "#{vidispine_db_sql_file_path}";unset PGPASSWORD)
+  execute %([ $UB_CP_RESTORE_DB_FINAL -eq 1 ] && echo $(export PGPASSWORD=postgres;"/usr/bin/psql" -h localhost -U postgres vidispine -f "#{vidispine_db_sql_file_path}";unset PGPASSWORD))
 
 
   execute '/etc/init.d/middleware start;supervisorctl start all'
