@@ -219,7 +219,7 @@ def archive_archiware(task = { })
 
   tar_command_line = build_tar_command_line(:name => 'archiware', :path => archiware_dir_path)
   command_line = <<-CMDLINE
-aws_running=$(( [ -n $(ps ax | grep -e  "[0-9] #{File.join(archiware_dir_path, 'bin/nsd')}") ] && echo 1 ) || echo 0)
+aws_running=$(( [[ -n $(ps ax | grep -e  "[0-9] #{File.join(archiware_dir_path, 'bin/nsd')}") ]] && echo 1 ) || echo 0)
 aws_running_jobs=$( ([ $aws_running -eq 1 ] && echo $(aws_jobs_running=0;for job in $("#{nsdchat_exec_file_path}" -c Job names); do [ job == 'running' ] && ((aws_jobs_running++)); done; echo $aws_jobs_running)) ) || echo 0
 [ $aws_running -eq 1 ] && [ $aws_running_jobs -eq 0 ] && echo "Stopping Server" && sudo "#{File.join(archiware_dir_path, 'stop-server')}"
 [ $aws_running_jobs -eq 0 ] && echo "Creating Archive" && #{tar_command_line}
@@ -487,8 +487,8 @@ end
 class AsperaEnterpriseServerArchive < BaseArchive
 
   TASKS = [
-      { :type => :archive_aspera_enterprise },
-      { :type => :archive_path, :name => 'aspera_enterprise_config', :path => '/opt/aspera/etc' },
+    { :type => :archive_aspera_enterprise },
+    { :type => :archive_path, :name => 'aspera_enterprise_config', :path => '/opt/aspera/etc' },
   ]
 
 end
@@ -584,10 +584,16 @@ to_archive << CantemoPortalArchive if archive_cantemo_portal?
 begin
   FileUtils.mkdir_p(archive_dir_base_path) unless dry_run?
 
-  execute("mkdir -p #{archive_dir}")
-  execute("cd #{archive_dir}")
+  execute(%(mkdir -p "#{archive_dir}"))
+  if dry_run?
+    execute(%(cd "#{archive_dir}"))
+  else
+    logger.info { %(Executing: cd "#{archive_dir}") }
+    Dir.chdir(archive_dir)
+  end
 
-  logger.debug { "Archive Dir: #{archive_dir}" }
+
+  logger.debug { %(Archive Dir: "#{archive_dir}") }
   logger.add_target(log_file_path) if !dry_run? and logger.respond_to?(:add_target)
 
   to_archive.each do |archive|
@@ -614,7 +620,9 @@ begin
     echo "# ### #{archive.name} end ###"
   end
 
+  archive_dir_path = File.join(archive_dir_base_path, archive_name)
   execute(%(cd "#{archive_dir_base_path}";tar czvf "#{archive_file_name}" "#{archive_name}"))
+  execute(%(rm -rf "#{archive_dir_path}"))
   echo %(Archive Created: '#{File.join(archive_dir_base_path, archive_file_name)}')
 
 ensure
