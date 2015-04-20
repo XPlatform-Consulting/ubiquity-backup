@@ -545,7 +545,7 @@ class CantemoPortalArchive < BaseArchive
     { :type => :archive_path, :name => 'cantemo_portal_glassfish_solr',     :path => '/opt/glassfish3/glassfish/solrhome' },
     { :type => :archive_path, :name => 'cantemo_portal_media',              :path => '/opt/cantemo/portal/portal_media' },
     { :type => :archive_path, :name => 'cantemo_portal_nginx',              :path => '/etc/nginx/conf.d/portal.conf' },
-    { :type => :archive_path, :name => 'cantemo_portal_plugins',            :path => '/opt/cantemo/portal/plugins' },
+    { :type => :archive_path, :name => 'cantemo_portal_plugins',            :path => '/opt/cantemo/portal/portal/plugins' },
     { :type => :archive_path, :name => 'cantemo_portal_rabbitmq',           :path => '/var/lib/rabbitmq' },
     { :type => :archive_path, :name => 'cantemo_portal_rabbitmq_conf',      :path => '/etc/rabbitmq' },
     { :type => :archive_path, :name => 'cantemo_portal_themes',             :path => '/opt/cantemo/portal/portal_themes' },
