@@ -42,7 +42,7 @@ def archive_cantemo_portal?; @archive_cantemo_portal end
 @archive_dir_base_path = '/tmp' # Dir.tmpdir
 def archive_dir_base_path; @archive_dir_base_path end
 
-@archive_name = "ubiquity-backup-#{Time.now.strftime('%Y%m%d-%H%M')}-#{rand(0x100000000).to_s(36)}"
+@archive_name = "ubiquity-backup-#{Time.now.strftime('%Y%m%d-%H%M')}-#{$$}-#{rand(0x100000).to_s(36)}"
 def archive_name; @archive_name end
 
 @dry_run = true
