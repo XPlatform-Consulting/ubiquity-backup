@@ -302,6 +302,7 @@ def archive_elasticsearch_index(args = { })
     execute(%(curl -XDELETE "#{host}:#{port}/_snapshot/#{archive_name}"))
   else
     http = Net::HTTP.new(host, port)
+    http.read_timeout = 10800
     http.put("/_snapshot/#{archive_name}", data)
     http.put("/_snapshot/#{archive_name}/snapshot_1?wait_for_completion=true", '')
     http.delete("/_snapshot/#{archive_name}")
